@@ -9,8 +9,70 @@ import GIFStudio from "@/components/tools/GIFStudio";
 import YoutubeThumbnail from "@/components/tools/YoutubeThumbnail";
 import ImageConverter from "@/components/tools/ImageConverter";
 import { useAppStore } from "@/store/appStore";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Image as ImageIcon, FileText, Film, Video as Youtube, RefreshCw } from "lucide-react";
 import type { Tool } from "@/store/appStore";
+
+const TOOL_NAV_ITEMS: { tool: Tool; label: string; icon: React.ElementType }[] = [
+  { tool: "image-resizer",    label: "Image Resizer",   icon: ImageIcon },
+  { tool: "doc-compressor",   label: "Doc Compressor",  icon: FileText },
+  { tool: "gif-studio",       label: "GIF Studio",      icon: Film },
+  { tool: "youtube-thumbnail",label: "YT Thumbnail",    icon: Youtube },
+  { tool: "image-converter",  label: "Converter",       icon: RefreshCw },
+];
+
+function ToolNav() {
+  const { activeTool, setActiveTool } = useAppStore();
+  return (
+    <div style={{ display: "flex", justifyContent: "center", padding: "16px 24px 0" }}>
+      <div style={{
+        display: "flex",
+        gap: 8,
+        background: "rgba(0,0,0,0.04)",
+        border: "1px solid rgba(0,0,0,0.07)",
+        borderRadius: 99,
+        padding: "6px 8px",
+      }}>
+        {TOOL_NAV_ITEMS.map(({ tool, label, icon: Icon }) => (
+          <button
+            key={tool}
+            onClick={() => setActiveTool(tool)}
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "8px 18px",
+              borderRadius: 99,
+              fontSize: 13,
+              fontWeight: 500,
+              border: "none",
+              cursor: "pointer",
+              background: "transparent",
+              color: activeTool === tool ? "#4f46e5" : "rgba(0,0,0,0.45)",
+              transition: "color 0.15s",
+            }}
+          >
+            {activeTool === tool && (
+              <motion.div
+                layoutId="tool-nav-pill"
+                style={{
+                  position: "absolute", inset: 0, borderRadius: 99,
+                  background: "rgba(110,110,245,0.1)",
+                  border: "1px solid rgba(110,110,245,0.2)",
+                }}
+                transition={{ type: "spring", stiffness: 500, damping: 38 }}
+              />
+            )}
+            <span style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 7 }}>
+              <Icon size={13} />
+              {label}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const TOOL_HERO: Record<Tool, string> = {
   "image-resizer":    "이미지를 완벽하게.",
@@ -128,6 +190,7 @@ export default function Home() {
 
       <div className="flex flex-col min-h-screen w-full">
         <Header />
+        <ToolNav />
         <InputComposer />
 
         <main className="flex-1 w-full py-36">
