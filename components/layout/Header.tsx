@@ -68,13 +68,13 @@ export default function Header() {
         </Link>
 
         {/* Center nav — desktop */}
-        <nav className="hidden md:flex items-center gap-0.5 rounded-2xl p-1"
+        <nav className="hidden md:flex items-center gap-1 rounded-2xl p-1.5"
           style={{ background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.06)" }}>
           {TOOLS.map((tool) => (
             <button
               key={tool}
               onClick={() => setActiveTool(tool)}
-              className="relative px-3.5 py-2 rounded-xl text-[13px] font-medium transition-colors"
+              className="relative px-5 py-2 rounded-xl text-[13px] font-medium transition-colors"
               style={{ color: activeTool === tool ? "#4f46e5" : "rgba(0,0,0,0.45)" }}
             >
               {activeTool === tool && (
