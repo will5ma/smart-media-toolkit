@@ -1,6 +1,5 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
-import Image from "next/image";
 import Link from "next/link";
 import { Image as ImageIcon, FileText, Film, Video as Youtube, Menu, X, RefreshCw } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
@@ -55,7 +54,12 @@ export default function Header() {
             className="relative w-8 h-8 rounded-xl overflow-hidden"
             style={{ border: "1px solid rgba(255,255,255,0.1)" }}
           >
-            <Image src="/logo.png" alt="WearableSearch" fill className="object-contain" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo.png`}
+              alt="WearableSearch"
+              className="w-full h-full object-contain"
+            />
           </motion.div>
           <div className="leading-tight">
             <div className="text-[13px] font-semibold text-white/90 tracking-tight">WearableSearch</div>
