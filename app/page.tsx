@@ -76,26 +76,26 @@ function ToolHeader() {
     <AnimatePresence mode="wait">
       <motion.div
         key={activeTool}
-        initial={{ opacity: 0, x: -12 }}
+        initial={{ opacity: 0, x: -14 }}
         animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 12 }}
-        transition={{ duration: 0.2 }}
-        className="mb-8 flex items-center gap-4"
+        exit={{ opacity: 0, x: 14 }}
+        transition={{ duration: 0.22 }}
+        className="mb-10 flex items-center gap-5"
       >
         <div
-          className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${TOOL_GRADIENT[activeTool]} flex items-center justify-center shrink-0`}
-          style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+          className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${TOOL_GRADIENT[activeTool]} flex items-center justify-center shrink-0`}
+          style={{ border: "1px solid rgba(255,255,255,0.1)", boxShadow: `0 8px 32px ${color}22` }}
         >
-          <Icon size={20} style={{ color }} />
+          <Icon size={24} style={{ color }} />
         </div>
         <div>
           <h1
-            className="text-xl font-semibold tracking-tight"
-            style={{ color: "#f5f5f7", letterSpacing: "-0.025em" }}
+            className="text-2xl font-semibold tracking-tight"
+            style={{ color: "#f5f5f7", letterSpacing: "-0.03em" }}
           >
             {TOOL_LABELS[activeTool]}
           </h1>
-          <p className="text-[13px] mt-0.5" style={{ color: "rgba(255,255,255,0.38)" }}>
+          <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.42)" }}>
             {TOOL_DESC[activeTool]}
           </p>
         </div>
@@ -107,13 +107,13 @@ function ToolHeader() {
 function HeroBadge() {
   return (
     <motion.div
-      initial={{ opacity: 0, y: -8 }}
+      initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.1 }}
-      className="mb-7"
+      transition={{ delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
+      className="mb-10"
     >
       <span className="chip">
-        <Sparkles size={10} style={{ color: "#a78bfa" }} />
+        <Sparkles size={11} style={{ color: "#a78bfa" }} />
         AI-Powered Media Workspace
       </span>
     </motion.div>
@@ -141,14 +141,16 @@ export default function Home() {
       <AuroraBackground />
 
       {/* All content above aurora */}
-      <div className="relative z-10 flex flex-col min-h-screen">
+      <div className="relative z-20 flex flex-col min-h-screen w-full">
         <Header />
         <InputComposer />
 
-        <main className="flex-1 max-w-screen-xl mx-auto w-full px-6 py-8">
-          <HeroBadge />
-          <ToolHeader />
-          <ToolContent />
+        <main className="flex-1 w-full py-16">
+          <div style={{ maxWidth: "900px", margin: "0 auto", padding: "0 40px" }}>
+            <HeroBadge />
+            <ToolHeader />
+            <ToolContent />
+          </div>
         </main>
       </div>
     </div>

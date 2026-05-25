@@ -29,6 +29,19 @@ html, body {
   overflow-x: hidden;
 }
 
+/* Static base gradient — always visible, aurora floats above */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 65% 45% at 15% 25%, hsla(255, 82%, 62%, 0.20) 0%, transparent 70%),
+    radial-gradient(ellipse 55% 40% at 85% 72%, hsla(308, 78%, 58%, 0.16) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 38% at 52% 88%, hsla(196, 88%, 60%, 0.13) 0%, transparent 70%);
+}
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -55,7 +68,7 @@ html, body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
   overflow: hidden;
 }
 

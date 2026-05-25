@@ -108,7 +108,8 @@ export default function InputComposer() {
         </div>
       )}
 
-      <div {...getRootProps()} className="w-[70%] mx-auto px-4 py-3">
+      <div {...getRootProps()} className="w-full py-3">
+        <div style={{ maxWidth: "680px", margin: "0 auto", padding: "0 16px" }}>
         {/* Uploaded file chips */}
         <AnimatePresence>
           {uploadedFiles.length > 0 && (
@@ -274,6 +275,7 @@ export default function InputComposer() {
             <Send size={15} />
           </motion.button>
         </div>
+        </div>{/* end centering wrapper */}
       </div>
 
       <input
