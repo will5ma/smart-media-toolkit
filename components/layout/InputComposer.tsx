@@ -108,8 +108,8 @@ export default function InputComposer() {
         </div>
       )}
 
-      <div {...getRootProps()} className="w-full py-3">
-        <div style={{ maxWidth: "680px", margin: "0 auto", padding: "0 16px" }}>
+      <div {...getRootProps()} className="w-full py-4">
+        <div style={{ maxWidth: "760px", margin: "0 auto", padding: "0 24px" }}>
         {/* Uploaded file chips */}
         <AnimatePresence>
           {uploadedFiles.length > 0 && (
@@ -155,8 +155,8 @@ export default function InputComposer() {
             backdropFilter: "blur(40px) saturate(180%)",
             WebkitBackdropFilter: "blur(40px) saturate(180%)",
             border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: "18px",
-            padding: "6px 6px 6px 8px",
+            borderRadius: "20px",
+            padding: "8px 8px 8px 12px",
             display: "flex",
             alignItems: "flex-end",
             gap: "8px",
@@ -170,8 +170,8 @@ export default function InputComposer() {
               whileTap={{ scale: 0.94 }}
               onClick={() => setShowAttach(!showAttach)}
               style={{
-                width: 34, height: 34,
-                borderRadius: 10,
+                width: 38, height: 38,
+                borderRadius: 11,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: showAttach ? "rgba(110,110,245,0.8)" : "rgba(255,255,255,0.07)",
                 color: showAttach ? "#fff" : "rgba(255,255,255,0.5)",
@@ -238,9 +238,9 @@ export default function InputComposer() {
             rows={1}
             style={{
               resize: "none", flex: 1, background: "transparent",
-              fontSize: 13, color: "#f5f5f7", outline: "none",
-              border: "none", paddingTop: 8, paddingBottom: 8,
-              minHeight: 34, maxHeight: 120, overflowY: "auto",
+              fontSize: 14, color: "#f5f5f7", outline: "none",
+              border: "none", paddingTop: 10, paddingBottom: 10,
+              minHeight: 38, maxHeight: 140, overflowY: "auto",
               fontFamily: "inherit", letterSpacing: "-0.01em",
             }}
             className="placeholder:text-white/25"
@@ -258,7 +258,7 @@ export default function InputComposer() {
             onClick={handleSend}
             disabled={!text.trim() && uploadedFiles.length === 0}
             style={{
-              width: 34, height: 34, borderRadius: 10, flexShrink: 0,
+              width: 38, height: 38, borderRadius: 11, flexShrink: 0,
               display: "flex", alignItems: "center", justifyContent: "center",
               background: (text.trim() || uploadedFiles.length > 0)
                 ? "linear-gradient(135deg, #6e6ef5, #4f46e5)"

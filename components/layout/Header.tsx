@@ -39,7 +39,7 @@ export default function Header() {
         borderBottom: "1px solid rgba(255,255,255,0.06)",
       }}
     >
-      <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center justify-between gap-6">
+      <div className="max-w-screen-xl mx-auto px-8 h-16 flex items-center justify-between gap-6">
 
         {/* Logo */}
         <Link
@@ -51,7 +51,7 @@ export default function Header() {
           <motion.div
             whileHover={{ scale: 1.06 }}
             whileTap={{ scale: 0.95 }}
-            className="relative w-8 h-8 rounded-xl overflow-hidden"
+            className="relative w-9 h-9 rounded-xl overflow-hidden"
             style={{ border: "1px solid rgba(255,255,255,0.1)" }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -62,8 +62,8 @@ export default function Header() {
             />
           </motion.div>
           <div className="leading-tight">
-            <div className="text-[13px] font-semibold text-white/90 tracking-tight">WearableSearch</div>
-            <div className="text-[9px] text-white/35 tracking-wide">웨어러블서치</div>
+            <div className="text-[14px] font-semibold text-white/90 tracking-tight">WearableSearch</div>
+            <div className="text-[10px] text-white/35 tracking-wide">웨어러블서치</div>
           </div>
         </Link>
 
@@ -74,7 +74,7 @@ export default function Header() {
             <button
               key={tool}
               onClick={() => setActiveTool(tool)}
-              className="relative px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors"
+              className="relative px-3.5 py-2 rounded-xl text-[13px] font-medium transition-colors"
               style={{ color: activeTool === tool ? "#fff" : "rgba(255,255,255,0.42)" }}
             >
               {activeTool === tool && (

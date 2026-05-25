@@ -80,22 +80,22 @@ function ToolHeader() {
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 14 }}
         transition={{ duration: 0.22 }}
-        className="mb-10 flex items-center gap-5"
+        className="mb-16 flex items-center gap-8"
       >
         <div
-          className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${TOOL_GRADIENT[activeTool]} flex items-center justify-center shrink-0`}
-          style={{ border: "1px solid rgba(255,255,255,0.1)", boxShadow: `0 8px 32px ${color}22` }}
+          className={`w-20 h-20 rounded-3xl bg-gradient-to-br ${TOOL_GRADIENT[activeTool]} flex items-center justify-center shrink-0`}
+          style={{ border: "1px solid rgba(255,255,255,0.1)", boxShadow: `0 12px 48px ${color}33` }}
         >
-          <Icon size={24} style={{ color }} />
+          <Icon size={32} style={{ color }} />
         </div>
         <div>
           <h1
-            className="text-2xl font-semibold tracking-tight"
-            style={{ color: "#f5f5f7", letterSpacing: "-0.03em" }}
+            className="text-4xl font-bold tracking-tight"
+            style={{ color: "#f5f5f7", letterSpacing: "-0.04em", lineHeight: 1.1 }}
           >
             {TOOL_LABELS[activeTool]}
           </h1>
-          <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.42)" }}>
+          <p className="text-base mt-3" style={{ color: "rgba(255,255,255,0.48)", lineHeight: 1.6 }}>
             {TOOL_DESC[activeTool]}
           </p>
         </div>
@@ -110,10 +110,10 @@ function HeroBadge() {
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
-      className="mb-10"
+      className="mb-14"
     >
-      <span className="chip">
-        <Sparkles size={11} style={{ color: "#a78bfa" }} />
+      <span className="chip" style={{ fontSize: 12, padding: "5px 14px", gap: 7 }}>
+        <Sparkles size={13} style={{ color: "#a78bfa" }} />
         AI-Powered Media Workspace
       </span>
     </motion.div>
@@ -145,8 +145,8 @@ export default function Home() {
         <Header />
         <InputComposer />
 
-        <main className="flex-1 w-full py-16">
-          <div style={{ maxWidth: "900px", margin: "0 auto", padding: "0 40px" }}>
+        <main className="flex-1 w-full py-24">
+          <div style={{ maxWidth: "960px", margin: "0 auto", padding: "0 48px" }}>
             <HeroBadge />
             <ToolHeader />
             <ToolContent />
