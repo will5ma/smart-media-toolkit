@@ -12,9 +12,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 export const metadata: Metadata = {
   title: "WearableSearch Smart Media Toolkit",
   description: "AI-powered media utility workspace — Image Resizer, Doc Compressor, GIF Studio, YouTube Thumbnail Downloader",
+  icons: {
+    icon: `${base}/logo.png`,
+    apple: `${base}/logo.png`,
+  },
 };
 
 export default function RootLayout({
