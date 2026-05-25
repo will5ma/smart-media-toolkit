@@ -33,10 +33,10 @@ export default function Header() {
         position: "sticky",
         top: 0,
         zIndex: 50,
-        backdropFilter: "blur(40px) saturate(180%)",
-        WebkitBackdropFilter: "blur(40px) saturate(180%)",
-        background: "rgba(6,6,8,0.72)",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        backdropFilter: "blur(40px) saturate(200%)",
+        WebkitBackdropFilter: "blur(40px) saturate(200%)",
+        background: "rgba(247,247,252,0.85)",
+        borderBottom: "1px solid rgba(0,0,0,0.07)",
       }}
     >
       <div className="max-w-screen-xl mx-auto px-8 h-16 flex items-center justify-between gap-6">
@@ -62,26 +62,26 @@ export default function Header() {
             />
           </motion.div>
           <div className="leading-tight">
-            <div className="text-[14px] font-semibold text-white/90 tracking-tight">WearableSearch</div>
-            <div className="text-[10px] text-white/35 tracking-wide">웨어러블서치</div>
+            <div className="text-[14px] font-semibold tracking-tight" style={{ color: "#1d1d2e" }}>WearableSearch</div>
+            <div className="text-[10px] tracking-wide" style={{ color: "rgba(0,0,0,0.35)" }}>웨어러블서치</div>
           </div>
         </Link>
 
         {/* Center nav — desktop */}
         <nav className="hidden md:flex items-center gap-0.5 rounded-2xl p-1"
-          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+          style={{ background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.06)" }}>
           {TOOLS.map((tool) => (
             <button
               key={tool}
               onClick={() => setActiveTool(tool)}
               className="relative px-3.5 py-2 rounded-xl text-[13px] font-medium transition-colors"
-              style={{ color: activeTool === tool ? "#fff" : "rgba(255,255,255,0.42)" }}
+              style={{ color: activeTool === tool ? "#4f46e5" : "rgba(0,0,0,0.45)" }}
             >
               {activeTool === tool && (
                 <motion.div
                   layoutId="nav-pill"
                   className="absolute inset-0 rounded-xl"
-                  style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.1)" }}
+                  style={{ background: "rgba(110,110,245,0.1)", border: "1px solid rgba(110,110,245,0.2)" }}
                   transition={{ type: "spring", stiffness: 500, damping: 35 }}
                 />
               )}
@@ -105,7 +105,7 @@ export default function Header() {
               className="hidden lg:block text-right"
             >
               <span className="text-[11px] font-medium"
-                style={{ color: "rgba(255,255,255,0.3)" }}>
+                style={{ color: "rgba(0,0,0,0.3)" }}>
                 {toolLabels[activeTool]}
               </span>
             </motion.div>
@@ -115,7 +115,7 @@ export default function Header() {
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="md:hidden w-8 h-8 rounded-xl flex items-center justify-center transition-colors"
-            style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)" }}
+            style={{ background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.55)" }}
           >
             {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
           </button>
@@ -130,7 +130,7 @@ export default function Header() {
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             className="md:hidden overflow-hidden"
-            style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+            style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}
           >
             <div className="px-5 py-3 flex flex-col gap-1">
               {TOOLS.map((tool) => (
@@ -141,9 +141,9 @@ export default function Header() {
                     "flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-left"
                   )}
                   style={{
-                    background: activeTool === tool ? "rgba(110,110,245,0.15)" : "transparent",
-                    color: activeTool === tool ? "#fff" : "rgba(255,255,255,0.5)",
-                    border: activeTool === tool ? "1px solid rgba(110,110,245,0.25)" : "1px solid transparent",
+                    background: activeTool === tool ? "rgba(110,110,245,0.1)" : "transparent",
+                    color: activeTool === tool ? "#4f46e5" : "rgba(0,0,0,0.5)",
+                    border: activeTool === tool ? "1px solid rgba(110,110,245,0.2)" : "1px solid transparent",
                   }}
                 >
                   {TOOL_ICONS_MAP[tool]}

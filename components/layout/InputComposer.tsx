@@ -122,25 +122,27 @@ export default function InputComposer() {
               {uploadedFiles.slice(0, 6).map((f) => (
                 <div
                   key={f.id}
-                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-xl bg-white/[0.08] border border-white/10 text-xs"
+                  className="flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs"
+                  style={{ background: "rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.08)" }}
                 >
                   {f.preview ? (
                     <img src={f.preview} alt="" className="w-5 h-5 rounded object-cover" />
                   ) : (
                     <FileText size={12} className="text-white/40" />
                   )}
-                  <span className="text-white/70 max-w-[100px] truncate">{f.file.name}</span>
-                  <span className="text-white/30">{formatBytes(f.file.size)}</span>
+                  <span className="max-w-[100px] truncate" style={{ color: "rgba(0,0,0,0.65)" }}>{f.file.name}</span>
+                  <span style={{ color: "rgba(0,0,0,0.3)" }}>{formatBytes(f.file.size)}</span>
                   <button
                     onClick={() => removeFile(f.id)}
-                    className="text-white/30 hover:text-red-400 transition-colors ml-0.5"
+                    className="hover:text-red-500 transition-colors ml-0.5"
+                    style={{ color: "rgba(0,0,0,0.3)" }}
                   >
                     <X size={10} />
                   </button>
                 </div>
               ))}
               {uploadedFiles.length > 6 && (
-                <div className="px-2 py-1.5 rounded-xl bg-white/[0.05] text-xs text-white/40">
+                <div className="px-2 py-1.5 rounded-xl text-xs" style={{ background: "rgba(0,0,0,0.04)", color: "rgba(0,0,0,0.4)" }}>
                   +{uploadedFiles.length - 6} more
                 </div>
               )}
@@ -148,19 +150,19 @@ export default function InputComposer() {
           )}
         </AnimatePresence>
 
-        {/* Main input bar — Apple style */}
+        {/* Main input bar — light Apple style */}
         <div
           style={{
-            background: "rgba(255,255,255,0.05)",
+            background: "#ffffff",
             backdropFilter: "blur(40px) saturate(180%)",
             WebkitBackdropFilter: "blur(40px) saturate(180%)",
-            border: "1px solid rgba(255,255,255,0.1)",
+            border: "1px solid rgba(0,0,0,0.09)",
             borderRadius: "20px",
             padding: "8px 8px 8px 12px",
             display: "flex",
             alignItems: "flex-end",
             gap: "8px",
-            boxShadow: "0 8px 40px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.3)",
+            boxShadow: "0 4px 24px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.05)",
           }}
         >
           {/* Attach button */}
@@ -173,9 +175,9 @@ export default function InputComposer() {
                 width: 38, height: 38,
                 borderRadius: 11,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: showAttach ? "rgba(110,110,245,0.8)" : "rgba(255,255,255,0.07)",
-                color: showAttach ? "#fff" : "rgba(255,255,255,0.5)",
-                border: "1px solid rgba(255,255,255,0.08)",
+                background: showAttach ? "rgba(110,110,245,0.9)" : "rgba(0,0,0,0.05)",
+                color: showAttach ? "#fff" : "rgba(0,0,0,0.45)",
+                border: "1px solid rgba(0,0,0,0.08)",
                 transition: "all 0.2s",
               }}
             >
@@ -193,9 +195,9 @@ export default function InputComposer() {
                   transition={{ duration: 0.15 }}
                   style={{
                     position: "absolute", top: 42, left: 0, zIndex: 50,
-                    background: "rgba(18,18,24,0.94)",
+                    background: "#ffffff",
                     backdropFilter: "blur(30px)",
-                    border: "1px solid rgba(255,255,255,0.1)",
+                    border: "1px solid rgba(0,0,0,0.09)",
                     borderRadius: 16, padding: 6, minWidth: 190,
                     boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
                   }}
@@ -207,17 +209,17 @@ export default function InputComposer() {
                       style={{
                         width: "100%", display: "flex", alignItems: "center", gap: 10,
                         padding: "8px 12px", borderRadius: 10, fontSize: 12,
-                        color: "rgba(255,255,255,0.65)", background: "transparent",
+                        color: "rgba(0,0,0,0.6)", background: "transparent",
                         border: "none", cursor: "pointer", textAlign: "left",
                         transition: "background 0.15s, color 0.15s",
                       }}
                       onMouseEnter={e => {
-                        (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.07)";
-                        (e.currentTarget as HTMLButtonElement).style.color = "#fff";
+                        (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.05)";
+                        (e.currentTarget as HTMLButtonElement).style.color = "#1d1d2e";
                       }}
                       onMouseLeave={e => {
                         (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                        (e.currentTarget as HTMLButtonElement).style.color = "rgba(255,255,255,0.65)";
+                        (e.currentTarget as HTMLButtonElement).style.color = "rgba(0,0,0,0.6)";
                       }}
                     >
                       <opt.icon size={14} className={opt.color} />
@@ -238,12 +240,12 @@ export default function InputComposer() {
             rows={1}
             style={{
               resize: "none", flex: 1, background: "transparent",
-              fontSize: 14, color: "#f5f5f7", outline: "none",
+              fontSize: 14, color: "#1d1d2e", outline: "none",
               border: "none", paddingTop: 10, paddingBottom: 10,
               minHeight: 38, maxHeight: 140, overflowY: "auto",
               fontFamily: "inherit", letterSpacing: "-0.01em",
             }}
-            className="placeholder:text-white/25"
+            className="placeholder:text-black/25"
             onInput={(e) => {
               const el = e.currentTarget;
               el.style.height = "auto";
@@ -262,10 +264,10 @@ export default function InputComposer() {
               display: "flex", alignItems: "center", justifyContent: "center",
               background: (text.trim() || uploadedFiles.length > 0)
                 ? "linear-gradient(135deg, #6e6ef5, #4f46e5)"
-                : "rgba(255,255,255,0.06)",
+                : "rgba(0,0,0,0.05)",
               color: (text.trim() || uploadedFiles.length > 0)
-                ? "#fff" : "rgba(255,255,255,0.18)",
-              border: "1px solid rgba(255,255,255,0.08)",
+                ? "#fff" : "rgba(0,0,0,0.25)",
+              border: "1px solid rgba(0,0,0,0.07)",
               cursor: (text.trim() || uploadedFiles.length > 0) ? "pointer" : "not-allowed",
               boxShadow: (text.trim() || uploadedFiles.length > 0)
                 ? "0 4px 14px rgba(110,110,245,0.4)" : "none",

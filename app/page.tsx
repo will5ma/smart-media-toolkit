@@ -2,7 +2,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Toaster } from "react-hot-toast";
 import Header from "@/components/layout/Header";
-import AuroraBackground from "@/components/layout/AuroraBackground";
 import InputComposer from "@/components/layout/InputComposer";
 import ImageResizer from "@/components/tools/ImageResizer";
 import DocCompressor from "@/components/tools/DocCompressor";
@@ -10,40 +9,23 @@ import GIFStudio from "@/components/tools/GIFStudio";
 import YoutubeThumbnail from "@/components/tools/YoutubeThumbnail";
 import ImageConverter from "@/components/tools/ImageConverter";
 import { useAppStore } from "@/store/appStore";
-import { TOOL_LABELS } from "@/lib/utils";
-import { ImageIcon, FileText, Film, Video as Youtube, Sparkles, RefreshCw } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import type { Tool } from "@/store/appStore";
 
-const TOOL_ICON: Record<Tool, React.ElementType> = {
-  "image-resizer": ImageIcon,
-  "doc-compressor": FileText,
-  "gif-studio": Film,
-  "youtube-thumbnail": Youtube,
-  "image-converter": RefreshCw,
-};
-
-const TOOL_GRADIENT: Record<Tool, string> = {
-  "image-resizer":   "from-violet-500/20 to-blue-500/10",
-  "doc-compressor":  "from-blue-500/20 to-sky-500/10",
-  "gif-studio":      "from-fuchsia-500/20 to-violet-500/10",
-  "youtube-thumbnail":"from-rose-500/20 to-orange-500/10",
-  "image-converter": "from-emerald-500/20 to-teal-500/10",
-};
-
-const TOOL_COLOR: Record<Tool, string> = {
-  "image-resizer":   "#a78bfa",
-  "doc-compressor":  "#60a5fa",
-  "gif-studio":      "#e879f9",
-  "youtube-thumbnail":"#fb7185",
-  "image-converter": "#34d399",
+const TOOL_HERO: Record<Tool, string> = {
+  "image-resizer":    "이미지를 완벽하게.",
+  "doc-compressor":   "문서를 가볍게.",
+  "gif-studio":       "GIF를 자유롭게.",
+  "youtube-thumbnail":"썸네일을 바로.",
+  "image-converter":  "형식을 바꾸다.",
 };
 
 const TOOL_DESC: Record<Tool, string> = {
-  "image-resizer":    "Resize, crop, or pad images to any aspect ratio with batch ZIP export.",
-  "doc-compressor":   "Compress PDF, DOC, PPT, and HWP files while preserving quality.",
-  "gif-studio":       "Edit GIFs or convert videos to animated GIFs with pro controls.",
-  "youtube-thumbnail":"Extract YouTube thumbnails in all qualities — max resolution included.",
-  "image-converter":  "JPG · PNG · WEBP · GIF · SVG 형식 간 변환. 배치 처리 및 ZIP 다운로드 지원.",
+  "image-resizer":    "원하는 비율로 자르거나 여백을 추가해 완성도 높은 이미지를 만드세요.",
+  "doc-compressor":   "PDF, DOC, PPT 파일을 원본 품질을 유지하면서 용량을 줄이세요.",
+  "gif-studio":       "GIF를 편집하거나 동영상을 움직이는 GIF로 바로 변환하세요.",
+  "youtube-thumbnail":"유튜브 영상의 썸네일을 최고 해상도로 즉시 다운로드하세요.",
+  "image-converter":  "JPG, PNG, WEBP, GIF 등 다양한 이미지 형식으로 손쉽게 변환하세요.",
 };
 
 function ToolContent() {
@@ -69,36 +51,43 @@ function ToolContent() {
 
 function ToolHeader() {
   const { activeTool } = useAppStore();
-  const Icon = TOOL_ICON[activeTool];
-  const color = TOOL_COLOR[activeTool];
 
   return (
     <AnimatePresence mode="wait">
       <motion.div
         key={activeTool}
-        initial={{ opacity: 0, x: -14 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 14 }}
-        transition={{ duration: 0.22 }}
-        className="mb-16 flex items-center gap-8"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.24 }}
+        style={{ textAlign: "center", marginBottom: "52px" }}
       >
-        <div
-          className={`w-20 h-20 rounded-3xl bg-gradient-to-br ${TOOL_GRADIENT[activeTool]} flex items-center justify-center shrink-0`}
-          style={{ border: "1px solid rgba(255,255,255,0.1)", boxShadow: `0 12px 48px ${color}33` }}
+        <h1
+          style={{
+            fontSize: "clamp(40px, 6vw, 72px)",
+            fontWeight: 800,
+            letterSpacing: "-0.04em",
+            lineHeight: 1.08,
+            marginBottom: "16px",
+            background: "linear-gradient(135deg, #2d2a7a 0%, #6e6ef5 60%, #7c3aed 100%)",
+            backgroundClip: "text",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+          }}
         >
-          <Icon size={32} style={{ color }} />
-        </div>
-        <div>
-          <h1
-            className="text-4xl font-bold tracking-tight"
-            style={{ color: "#f5f5f7", letterSpacing: "-0.04em", lineHeight: 1.1 }}
-          >
-            {TOOL_LABELS[activeTool]}
-          </h1>
-          <p className="text-base mt-3" style={{ color: "rgba(255,255,255,0.48)", lineHeight: 1.6 }}>
-            {TOOL_DESC[activeTool]}
-          </p>
-        </div>
+          {TOOL_HERO[activeTool]}
+        </h1>
+        <p
+          style={{
+            fontSize: "18px",
+            color: "rgba(0,0,0,0.48)",
+            lineHeight: 1.65,
+            maxWidth: "480px",
+            margin: "0 auto",
+          }}
+        >
+          {TOOL_DESC[activeTool]}
+        </p>
       </motion.div>
     </AnimatePresence>
   );
@@ -109,11 +98,11 @@ function HeroBadge() {
     <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
-      className="mb-14"
+      transition={{ delay: 0.06, ease: [0.16, 1, 0.3, 1] }}
+      style={{ textAlign: "center", marginBottom: "28px" }}
     >
-      <span className="chip" style={{ fontSize: 12, padding: "5px 14px", gap: 7 }}>
-        <Sparkles size={13} style={{ color: "#a78bfa" }} />
+      <span className="chip">
+        <Sparkles size={12} />
         AI-Powered Media Workspace
       </span>
     </motion.div>
@@ -122,31 +111,27 @@ function HeroBadge() {
 
 export default function Home() {
   return (
-    <div className="flex flex-col min-h-screen relative" style={{ background: "#060608" }}>
+    <div className="flex flex-col min-h-screen relative" style={{ background: "var(--bg)" }}>
       <Toaster
         position="top-right"
         toastOptions={{
           style: {
-            background: "rgba(20,20,28,0.92)",
-            color: "#f5f5f7",
-            border: "1px solid rgba(255,255,255,0.08)",
+            background: "#ffffff",
+            color: "#1d1d2e",
+            border: "1px solid rgba(0,0,0,0.08)",
             borderRadius: "14px",
             fontSize: "13px",
-            backdropFilter: "blur(20px)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.1)",
           },
         }}
       />
 
-      {/* Aurora gradient background */}
-      <AuroraBackground />
-
-      {/* All content above aurora */}
-      <div className="relative z-20 flex flex-col min-h-screen w-full">
+      <div className="flex flex-col min-h-screen w-full">
         <Header />
         <InputComposer />
 
         <main className="flex-1 w-full py-36">
-          <div style={{ maxWidth: "960px", margin: "0 auto", padding: "0 48px" }}>
+          <div style={{ maxWidth: "800px", margin: "0 auto", padding: "0 40px" }}>
             <HeroBadge />
             <ToolHeader />
             <ToolContent />

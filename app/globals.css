@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #060608;
-  --surface: rgba(255, 255, 255, 0.04);
-  --surface-hover: rgba(255, 255, 255, 0.07);
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --text: #f5f5f7;
-  --text-secondary: rgba(255, 255, 255, 0.5);
-  --text-tertiary: rgba(255, 255, 255, 0.28);
+  --bg: #f7f7fc;
+  --surface: #ffffff;
+  --surface-hover: #f2f2f8;
+  --border: rgba(0,0,0,0.07);
+  --border-strong: rgba(0,0,0,0.13);
+  --text: #1d1d2e;
+  --text-secondary: rgba(0,0,0,0.5);
+  --text-tertiary: rgba(0,0,0,0.3);
   --accent: #6e6ef5;
-  --radius-card: 18px;
+  --radius-card: 20px;
 }
 
 @theme inline {
@@ -29,7 +29,7 @@ html, body {
   overflow-x: hidden;
 }
 
-/* Static base gradient — always visible, aurora floats above */
+/* Subtle page gradient */
 body::before {
   content: "";
   position: fixed;
@@ -37,48 +37,32 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 65% 45% at 15% 25%, hsla(255, 82%, 62%, 0.20) 0%, transparent 70%),
-    radial-gradient(ellipse 55% 40% at 85% 72%, hsla(308, 78%, 58%, 0.16) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 38% at 52% 88%, hsla(196, 88%, 60%, 0.13) 0%, transparent 70%);
+    radial-gradient(ellipse 70% 50% at 0% 0%, hsla(255, 82%, 62%, 0.09) 0%, transparent 65%),
+    radial-gradient(ellipse 55% 45% at 100% 100%, hsla(308, 78%, 58%, 0.08) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 40% at 50% 110%, hsla(230, 80%, 65%, 0.06) 0%, transparent 60%);
 }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
 
-/* ── Glass surface ── */
+/* ── Glass (light) ── */
 .glass {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255,255,255,0.8);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid var(--border);
+  border: 1px solid rgba(0,0,0,0.07);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.05);
 }
 
 .glass-strong {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255,255,255,0.95);
   backdrop-filter: blur(40px) saturate(200%);
   -webkit-backdrop-filter: blur(40px) saturate(200%);
-  border: 1px solid var(--border-strong);
-}
-
-/* ── Aurora background ── */
-.aurora-wrap {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  overflow: hidden;
-}
-
-.aurora-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  transform: translate(-50%, -50%);
-  will-change: left, top;
-  transition: background 0.6s ease;
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.07);
 }
 
 /* ── Typography ── */
@@ -97,30 +81,29 @@ body::before {
 
 /* ── Gradient text ── */
 .gradient-text {
-  background: linear-gradient(135deg, #a78bfa, #60a5fa, #34d399);
+  background: linear-gradient(135deg, #4338ca, #6e6ef5, #7c3aed);
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-/* ── Apple-style card ── */
+/* ── Card ── */
 .apple-card {
-  background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #ffffff;
+  border: 1px solid rgba(0,0,0,0.07);
   border-radius: var(--radius-card);
-  transition: border-color 0.25s, background 0.25s;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.03);
+  transition: box-shadow 0.25s, border-color 0.25s;
 }
 .apple-card:hover {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(0,0,0,0.1);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04);
 }
 
 /* ── Input ── */
 .apple-input {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(0,0,0,0.03);
+  border: 1px solid rgba(0,0,0,0.1);
   border-radius: 12px;
   color: var(--text);
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
@@ -128,48 +111,42 @@ body::before {
 .apple-input:focus {
   outline: none;
   border-color: rgba(110, 110, 245, 0.6);
-  background: rgba(255,255,255,0.07);
-  box-shadow: 0 0 0 3px rgba(110, 110, 245, 0.12);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(110, 110, 245, 0.1);
 }
 
 /* ── Button ── */
 .btn-primary {
   background: linear-gradient(135deg, #6e6ef5, #4f46e5);
-  border: 1px solid rgba(110,110,245,0.4);
-  border-radius: 12px;
+  border: none;
+  border-radius: 99px;
   color: #fff;
   font-weight: 600;
   letter-spacing: -0.01em;
   transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
-  box-shadow: 0 4px 20px rgba(110,110,245,0.25);
+  box-shadow: 0 4px 20px rgba(110,110,245,0.35);
 }
-.btn-primary:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 8px 28px rgba(110,110,245,0.35); }
+.btn-primary:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 8px 28px rgba(110,110,245,0.45); }
 .btn-primary:active { transform: translateY(0); opacity: 1; }
 
 /* ── Tag chip ── */
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
+  gap: 6px;
+  padding: 5px 14px;
   border-radius: 99px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  background: var(--surface);
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-.chip:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
-  color: var(--text);
+  border: 1px solid rgba(110,110,245,0.2);
+  color: rgba(79,70,229,0.85);
+  background: rgba(110,110,245,0.07);
 }
 
 /* ── Progress ── */
 .progress-track {
-  background: rgba(255,255,255,0.08);
+  background: rgba(0,0,0,0.07);
   border-radius: 99px;
   overflow: hidden;
 }
@@ -181,14 +158,14 @@ body::before {
 
 /* ── Drop zone ── */
 .drop-zone {
-  border: 1.5px dashed rgba(255,255,255,0.1);
+  border: 1.5px dashed rgba(0,0,0,0.12);
   border-radius: var(--radius-card);
   transition: border-color 0.2s, background 0.2s;
   cursor: pointer;
 }
 .drop-zone:hover, .drop-zone.active {
-  border-color: rgba(110,110,245,0.5);
-  background: rgba(110,110,245,0.05);
+  border-color: rgba(110,110,245,0.45);
+  background: rgba(110,110,245,0.03);
 }
 
 /* ── Drag overlay ── */
@@ -196,12 +173,12 @@ body::before {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: rgba(110, 110, 245, 0.08);
+  background: rgba(110, 110, 245, 0.05);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px dashed rgba(110,110,245,0.6);
+  border: 2px dashed rgba(110,110,245,0.5);
   pointer-events: none;
 }
 
@@ -211,7 +188,7 @@ body::before {
   100% { background-position: 200% center; }
 }
 .shimmer {
-  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.04) 75%);
+  background: linear-gradient(90deg, rgba(0,0,0,0.03) 25%, rgba(0,0,0,0.07) 50%, rgba(0,0,0,0.03) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
