@@ -145,7 +145,7 @@ export default function Home() {
         <Header />
         <InputComposer />
 
-        <main className="flex-1 w-full py-24">
+        <main className="flex-1 w-full py-36">
           <div style={{ maxWidth: "960px", margin: "0 auto", padding: "0 48px" }}>
             <HeroBadge />
             <ToolHeader />

@@ -108,7 +108,7 @@ export default function InputComposer() {
         </div>
       )}
 
-      <div {...getRootProps()} className="w-full py-4">
+      <div {...getRootProps()} className="w-full py-8">
         <div style={{ maxWidth: "760px", margin: "0 auto", padding: "0 24px" }}>
         {/* Uploaded file chips */}
         <AnimatePresence>
