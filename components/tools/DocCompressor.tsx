@@ -4,9 +4,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useDropzone } from "react-dropzone";
 import { FileText, Download, Trash2, CheckCircle, AlertCircle, Scissors, ZapIcon } from "lucide-react";
 import { PDFDocument } from "pdf-lib";
+import * as pdfjsLib from "pdfjs-dist";
 import JSZip from "jszip";
 import toast from "react-hot-toast";
 import { formatBytes, generateId } from "@/lib/utils";
+
+// PDF.js 워커 설정
+if (typeof window !== "undefined") {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/pdf.worker.min.mjs`;
+}
 
 type AppMode = "compress" | "split";
 type CompressionLevel = "최대" | "중간" | "최적";
@@ -29,37 +36,64 @@ function isPDF(name: string) { return getExt(name) === "pdf"; }
 
 // ── Compression ─────────────────────────────────────────────────────────────
 
-const LEVEL_CONFIG: Record<CompressionLevel, { maxW: number; label: string; desc: string }> = {
-  "최대": { maxW: 1024, label: "최대 압축", desc: "용량 최우선, 화질 일부 손실" },
-  "중간": { maxW: 1440, label: "중간 압축", desc: "균형 잡힌 압축" },
-  "최적": { maxW: 1920, label: "최적 품질", desc: "화질 유지, 최소 압축" },
+const LEVEL_CONFIG: Record<CompressionLevel, { scale: number; quality: number; label: string; desc: string }> = {
+  "최대": { scale: 0.70, quality: 0.60, label: "최대 압축", desc: "용량 최우선, 화질 일부 손실" },
+  "중간": { scale: 0.85, quality: 0.75, label: "중간 압축", desc: "균형 잡힌 압축" },
+  "최적": { scale: 1.00, quality: 0.90, label: "최적 품질", desc: "화질 유지, 최소 압축" },
 };
 
+/**
+ * 실제 압축: PDF.js로 각 페이지를 canvas에 렌더링 → JPEG 재인코딩 → 새 pdf-lib 문서로 재조립
+ * 이미지/폰트가 JPEG로 재압축되므로 실질적인 용량 감소가 이루어집니다.
+ */
 async function compressPDF(
   file: File,
   level: CompressionLevel,
   onProgress: (p: number) => void
 ): Promise<{ url: string; size: number }> {
-  onProgress(15);
-  const buf = await file.arrayBuffer();
-  onProgress(40);
-  const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
-  onProgress(60);
+  const { scale, quality } = LEVEL_CONFIG[level];
 
-  const maxW = LEVEL_CONFIG[level].maxW;
-  doc.getPages().forEach((page) => {
-    const { width, height } = page.getSize();
-    if (width > maxW) {
-      const ratio = maxW / width;
-      page.setSize(maxW, height * ratio);
-      page.scaleContent(ratio, ratio);
-    }
-  });
+  onProgress(5);
+  const arrayBuffer = await file.arrayBuffer();
 
-  const saved = await doc.save({ useObjectStreams: true });
-  onProgress(95);
-  const blob = new Blob([saved.buffer as ArrayBuffer], { type: "application/pdf" });
+  // 1) PDF.js 로드
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdfDoc = await loadingTask.promise;
+  const totalPages = pdfDoc.numPages;
+  onProgress(10);
+
+  // 2) 새 pdf-lib 문서 생성
+  const newDoc = await PDFDocument.create();
+
+  for (let i = 1; i <= totalPages; i++) {
+    const page = await pdfDoc.getPage(i);
+    const viewport = page.getViewport({ scale });
+
+    // 캔버스에 렌더링
+    const canvas = document.createElement("canvas");
+    canvas.width  = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    const ctx = canvas.getContext("2d")!;
+    await page.render({ canvasContext: ctx as CanvasRenderingContext2D, canvas, viewport }).promise;
+
+    // JPEG 재인코딩
+    const jpegBlob = await new Promise<Blob>((res) =>
+      canvas.toBlob((b) => res(b!), "image/jpeg", quality)
+    );
+    const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
+
+    // pdf-lib에 삽입
+    const jpegImage = await newDoc.embedJpg(jpegBytes);
+    const pdfPage = newDoc.addPage([viewport.width, viewport.height]);
+    pdfPage.drawImage(jpegImage, { x: 0, y: 0, width: viewport.width, height: viewport.height });
+
+    onProgress(10 + Math.round((i / totalPages) * 82));
+  }
+
+  // 3) 저장
+  const saved = await newDoc.save({ useObjectStreams: true });
   onProgress(100);
+  const blob = new Blob([saved.buffer as ArrayBuffer], { type: "application/pdf" });
   return { url: URL.createObjectURL(blob), size: blob.size };
 }
 
