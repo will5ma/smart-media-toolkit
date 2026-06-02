@@ -9,10 +9,10 @@ import JSZip from "jszip";
 import toast from "react-hot-toast";
 import { formatBytes, generateId } from "@/lib/utils";
 
-// PDF.js 워커 설정
+// PDF.js 워커 — unpkg CDN (로컬 경로 의존성 없이 안정적으로 동작)
 if (typeof window !== "undefined") {
   pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/pdf.worker.min.mjs`;
+    `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
 
 type AppMode = "compress" | "split";
@@ -37,9 +37,9 @@ function isPDF(name: string) { return getExt(name) === "pdf"; }
 // ── Compression ─────────────────────────────────────────────────────────────
 
 const LEVEL_CONFIG: Record<CompressionLevel, { scale: number; quality: number; label: string; desc: string }> = {
-  "최대": { scale: 0.70, quality: 0.60, label: "최대 압축", desc: "용량 최우선, 화질 일부 손실" },
-  "중간": { scale: 0.85, quality: 0.75, label: "중간 압축", desc: "균형 잡힌 압축" },
-  "최적": { scale: 1.00, quality: 0.90, label: "최적 품질", desc: "화질 유지, 최소 압축" },
+  "최대": { scale: 0.50, quality: 0.45, label: "최대 압축", desc: "용량 최우선, 화질 손실" },
+  "중간": { scale: 0.72, quality: 0.65, label: "중간 압축", desc: "균형 잡힌 압축" },
+  "최적": { scale: 0.90, quality: 0.82, label: "최적 품질", desc: "화질 유지, 적당한 압축" },
 };
 
 /**
@@ -56,38 +56,55 @@ async function compressPDF(
   onProgress(5);
   const arrayBuffer = await file.arrayBuffer();
 
-  // 1) PDF.js 로드
-  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-  const pdfDoc = await loadingTask.promise;
-  const totalPages = pdfDoc.numPages;
+  // 1) PDF.js로 로드 — 워커 미로드 시 메인스레드 폴백
+  let pdfJsDoc: pdfjsLib.PDFDocumentProxy;
+  try {
+    const task = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+    pdfJsDoc = await task.promise;
+  } catch (e) {
+    console.warn("PDF.js 워커 로드 실패, 메인스레드로 재시도:", e);
+    // 워커 없이 재시도
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+    const task = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+    pdfJsDoc = await task.promise;
+  }
+
+  const totalPages = pdfJsDoc.numPages;
   onProgress(10);
 
-  // 2) 새 pdf-lib 문서 생성
+  // 2) 페이지마다 canvas 렌더링 → JPEG → pdf-lib 삽입
   const newDoc = await PDFDocument.create();
 
   for (let i = 1; i <= totalPages; i++) {
-    const page = await pdfDoc.getPage(i);
+    const page = await pdfJsDoc.getPage(i);
     const viewport = page.getViewport({ scale });
 
-    // 캔버스에 렌더링
     const canvas = document.createElement("canvas");
     canvas.width  = Math.round(viewport.width);
     canvas.height = Math.round(viewport.height);
     const ctx = canvas.getContext("2d")!;
-    await page.render({ canvasContext: ctx as CanvasRenderingContext2D, canvas, viewport }).promise;
 
-    // JPEG 재인코딩
-    const jpegBlob = await new Promise<Blob>((res) =>
-      canvas.toBlob((b) => res(b!), "image/jpeg", quality)
-    );
-    const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
+    await page.render({
+      canvasContext: ctx as CanvasRenderingContext2D,
+      canvas,
+      viewport,
+    }).promise;
 
-    // pdf-lib에 삽입
+    const jpegBytes = await new Promise<Uint8Array>((resolve, reject) => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return reject(new Error("canvas.toBlob failed"));
+        resolve(new Uint8Array(await blob.arrayBuffer()));
+      }, "image/jpeg", quality);
+    });
+
     const jpegImage = await newDoc.embedJpg(jpegBytes);
-    const pdfPage = newDoc.addPage([viewport.width, viewport.height]);
-    pdfPage.drawImage(jpegImage, { x: 0, y: 0, width: viewport.width, height: viewport.height });
+    const pdfPage = newDoc.addPage([canvas.width, canvas.height]);
+    pdfPage.drawImage(jpegImage, { x: 0, y: 0, width: canvas.width, height: canvas.height });
 
-    onProgress(10 + Math.round((i / totalPages) * 82));
+    onProgress(10 + Math.round((i / totalPages) * 83));
+
+    // GC 힌트
+    canvas.width = 1; canvas.height = 1;
   }
 
   // 3) 저장
@@ -377,6 +394,13 @@ export default function DocCompressor() {
           </button>
         </motion.div>
       </div>
+
+      {/* 브라우저 압축 한계 안내 */}
+      {appMode === "compress" && (
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)", background: "var(--surface-hover)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", lineHeight: 1.6 }}>
+          💡 브라우저 압축은 각 페이지를 이미지로 변환해 재압축합니다. <strong>이미지·스캔 PDF</strong>는 크게 줄어들고, <strong>텍스트 위주 PDF</strong>는 압축률이 낮을 수 있습니다. 더 높은 압축률이 필요하다면 서버 기반 도구(ilovepdf 등)를 함께 사용하세요.
+        </div>
+      )}
 
       {splitOnlyPDFs && (
         <p style={{ fontSize: 13, color: "#f59e0b", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8, padding: "8px 12px" }}>
