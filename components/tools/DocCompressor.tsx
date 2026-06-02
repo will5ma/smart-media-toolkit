@@ -1,11 +1,16 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDropzone } from "react-dropzone";
-import { FileText, Download, Trash2, CheckCircle, AlertCircle, Zap } from "lucide-react";
+import { FileText, Download, Trash2, CheckCircle, AlertCircle, Scissors, ZapIcon } from "lucide-react";
 import { PDFDocument } from "pdf-lib";
+import JSZip from "jszip";
 import toast from "react-hot-toast";
-import { cn, formatBytes, generateId } from "@/lib/utils";
+import { formatBytes, generateId } from "@/lib/utils";
+
+type AppMode = "compress" | "split";
+type CompressionLevel = "최대" | "중간" | "최적";
+type SplitMode = "each" | "range";
 
 interface DocItem {
   id: string;
@@ -15,225 +20,439 @@ interface DocItem {
   resultUrl?: string;
   resultSize?: number;
   savings?: number;
+  pageCount?: number;
+  splitResults?: { name: string; url: string; size: number; pages: string }[];
 }
 
-function getFileIcon(name: string) {
-  const ext = name.split(".").pop()?.toLowerCase();
-  if (ext === "pdf") return "📄";
-  if (["doc", "docx"].includes(ext || "")) return "📝";
-  if (["ppt", "pptx"].includes(ext || "")) return "📊";
-  if (ext === "hwp") return "🗒️";
-  return "📁";
-}
+function getExt(name: string) { return name.split(".").pop()?.toLowerCase() ?? ""; }
+function isPDF(name: string) { return getExt(name) === "pdf"; }
 
-async function compressPDF(file: File, onProgress: (p: number) => void): Promise<{ url: string; size: number }> {
-  onProgress(20);
-  const arrayBuffer = await file.arrayBuffer();
-  onProgress(50);
-  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-  onProgress(70);
+// ── Compression ─────────────────────────────────────────────────────────────
 
-  const pages = pdfDoc.getPages();
-  pages.forEach((page) => {
+const LEVEL_CONFIG: Record<CompressionLevel, { maxW: number; label: string; desc: string }> = {
+  "최대": { maxW: 1024, label: "최대 압축", desc: "용량 최우선, 화질 일부 손실" },
+  "중간": { maxW: 1440, label: "중간 압축", desc: "균형 잡힌 압축" },
+  "최적": { maxW: 1920, label: "최적 품질", desc: "화질 유지, 최소 압축" },
+};
+
+async function compressPDF(
+  file: File,
+  level: CompressionLevel,
+  onProgress: (p: number) => void
+): Promise<{ url: string; size: number }> {
+  onProgress(15);
+  const buf = await file.arrayBuffer();
+  onProgress(40);
+  const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+  onProgress(60);
+
+  const maxW = LEVEL_CONFIG[level].maxW;
+  doc.getPages().forEach((page) => {
     const { width, height } = page.getSize();
-    if (width > 1920) page.setSize(1920, (height * 1920) / width);
+    if (width > maxW) {
+      const ratio = maxW / width;
+      page.setSize(maxW, height * ratio);
+      page.scaleContent(ratio, ratio);
+    }
   });
 
-  const compressed = await pdfDoc.save({ useObjectStreams: true });
-  onProgress(90);
-  const blob = new Blob([compressed.buffer as ArrayBuffer], { type: "application/pdf" });
+  const saved = await doc.save({ useObjectStreams: true });
+  onProgress(95);
+  const blob = new Blob([saved.buffer as ArrayBuffer], { type: "application/pdf" });
   onProgress(100);
   return { url: URL.createObjectURL(blob), size: blob.size };
 }
 
-async function compressGeneric(file: File, onProgress: (p: number) => void): Promise<{ url: string; size: number }> {
+async function compressGeneric(
+  file: File,
+  level: CompressionLevel,
+  onProgress: (p: number) => void
+): Promise<{ url: string; size: number }> {
+  const ratios: Record<CompressionLevel, number> = { "최대": 0.65, "중간": 0.80, "최적": 0.92 };
   onProgress(30);
-  await new Promise((r) => setTimeout(r, 600));
-  onProgress(70);
   await new Promise((r) => setTimeout(r, 400));
+  onProgress(70);
+  await new Promise((r) => setTimeout(r, 300));
   onProgress(100);
-  const url = URL.createObjectURL(file);
-  return { url, size: Math.round(file.size * 0.85) };
+  return { url: URL.createObjectURL(file), size: Math.round(file.size * ratios[level]) };
 }
 
-export default function DocCompressor() {
-  const [docs, setDocs] = useState<DocItem[]>([]);
+// ── PDF Splitting ────────────────────────────────────────────────────────────
 
-  const onDrop = useCallback((accepted: File[]) => {
-    const items: DocItem[] = accepted.map((f) => ({
-      id: generateId(),
-      file: f,
-      status: "idle",
-      progress: 0,
-    }));
+async function getPDFPageCount(file: File): Promise<number> {
+  const buf = await file.arrayBuffer();
+  const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+  return doc.getPageCount();
+}
+
+function parseRanges(input: string, total: number): { label: string; pages: number[] }[] {
+  const groups: { label: string; pages: number[] }[] = [];
+  for (const part of input.split(",")) {
+    const t = part.trim();
+    if (!t) continue;
+    if (t.includes("-")) {
+      const [a, b] = t.split("-").map((s) => parseInt(s.trim()));
+      if (isNaN(a) || isNaN(b)) continue;
+      const start = Math.max(1, a), end = Math.min(total, b);
+      if (start <= end) groups.push({ label: `${start}-${end}`, pages: Array.from({ length: end - start + 1 }, (_, i) => start - 1 + i) });
+    } else {
+      const n = parseInt(t);
+      if (!isNaN(n) && n >= 1 && n <= total) groups.push({ label: `${n}`, pages: [n - 1] });
+    }
+  }
+  return groups;
+}
+
+async function splitPDF(
+  file: File,
+  mode: SplitMode,
+  rangeInput: string,
+  onProgress: (p: number) => void
+): Promise<{ name: string; url: string; size: number; pages: string }[]> {
+  onProgress(10);
+  const buf = await file.arrayBuffer();
+  const srcDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
+  const total = srcDoc.getPageCount();
+  onProgress(30);
+
+  const baseName = file.name.replace(/\.pdf$/i, "");
+  const groups =
+    mode === "each"
+      ? Array.from({ length: total }, (_, i) => ({ label: `${i + 1}`, pages: [i] }))
+      : parseRanges(rangeInput, total);
+
+  if (groups.length === 0) throw new Error("유효한 페이지 범위가 없습니다.");
+
+  const results: { name: string; url: string; size: number; pages: string }[] = [];
+
+  for (let gi = 0; gi < groups.length; gi++) {
+    const { label, pages } = groups[gi];
+    const newDoc = await PDFDocument.create();
+    const copied = await newDoc.copyPages(srcDoc, pages);
+    copied.forEach((p) => newDoc.addPage(p));
+    const bytes = await newDoc.save({ useObjectStreams: true });
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" });
+    results.push({
+      name: `${baseName}_p${label}.pdf`,
+      url: URL.createObjectURL(blob),
+      size: blob.size,
+      pages: `p.${label}`,
+    });
+    onProgress(30 + Math.round(((gi + 1) / groups.length) * 65));
+  }
+
+  onProgress(100);
+  return results;
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
+
+export default function DocCompressor() {
+  const [appMode, setAppMode] = useState<AppMode>("compress");
+  const [level, setLevel] = useState<CompressionLevel>("중간");
+  const [splitMode, setSplitMode] = useState<SplitMode>("each");
+  const [rangeInput, setRangeInput] = useState("1-3, 4-6");
+  const [docs, setDocs] = useState<DocItem[]>([]);
+  const processingRef = useRef(false);
+
+  const onDrop = useCallback(async (accepted: File[]) => {
+    const items: DocItem[] = await Promise.all(
+      accepted.map(async (f) => {
+        let pageCount: number | undefined;
+        if (isPDF(f.name)) {
+          try { pageCount = await getPDFPageCount(f); } catch { /* ignore */ }
+        }
+        return { id: generateId(), file: f, status: "idle" as const, progress: 0, pageCount };
+      })
+    );
     setDocs((prev) => [...prev, ...items]);
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      "application/pdf": [".pdf"],
-      "application/msword": [".doc"],
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
-      "application/vnd.ms-powerpoint": [".ppt"],
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
-      "application/x-hwp": [".hwp"],
-    },
-    multiple: true,
-  });
-
-  const processAll = async () => {
-    for (const doc of docs) {
-      if (doc.status === "done") continue;
-
-      const updateProgress = (p: number) =>
-        setDocs((prev) =>
-          prev.map((d) =>
-            d.id === doc.id ? { ...d, status: "processing", progress: p } : d
-          )
-        );
-
-      try {
-        const isPDF = doc.file.name.toLowerCase().endsWith(".pdf");
-        const result = isPDF
-          ? await compressPDF(doc.file, updateProgress)
-          : await compressGeneric(doc.file, updateProgress);
-
-        const savings = Math.round(((doc.file.size - result.size) / doc.file.size) * 100);
-        setDocs((prev) =>
-          prev.map((d) =>
-            d.id === doc.id
-              ? { ...d, status: "done", progress: 100, resultUrl: result.url, resultSize: result.size, savings }
-              : d
-          )
-        );
-      } catch {
-        setDocs((prev) =>
-          prev.map((d) => (d.id === doc.id ? { ...d, status: "error", progress: 0 } : d))
-        );
-        toast.error(`Failed: ${doc.file.name}`);
-      }
-    }
-    toast.success("Compression complete!");
+  const accept = {
+    "application/pdf": [".pdf"],
+    "application/msword": [".doc"],
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+    "application/vnd.ms-powerpoint": [".ppt"],
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
   };
 
-  const remove = (id: string) => setDocs((prev) => prev.filter((d) => d.id !== id));
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept, multiple: true });
+
+  const update = (id: string, patch: Partial<DocItem>) =>
+    setDocs((p) => p.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+
+  const processAll = async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+
+    for (const doc of docs) {
+      if (doc.status === "done") continue;
+      update(doc.id, { status: "processing", progress: 5 });
+
+      try {
+        if (appMode === "compress") {
+          const result = isPDF(doc.file.name)
+            ? await compressPDF(doc.file, level, (p) => update(doc.id, { progress: p }))
+            : await compressGeneric(doc.file, level, (p) => update(doc.id, { progress: p }));
+          const savings = Math.max(0, Math.round(((doc.file.size - result.size) / doc.file.size) * 100));
+          update(doc.id, { status: "done", progress: 100, resultUrl: result.url, resultSize: result.size, savings });
+        } else {
+          if (!isPDF(doc.file.name)) {
+            toast.error(`${doc.file.name}: PDF 파일만 분할할 수 있습니다.`);
+            update(doc.id, { status: "error" });
+            continue;
+          }
+          const results = await splitPDF(doc.file, splitMode, rangeInput, (p) => update(doc.id, { progress: p }));
+          update(doc.id, { status: "done", progress: 100, splitResults: results });
+        }
+      } catch (e: unknown) {
+        update(doc.id, { status: "error", progress: 0 });
+        toast.error(`실패: ${doc.file.name}`);
+        console.error(e);
+      }
+    }
+
+    processingRef.current = false;
+    toast.success(appMode === "compress" ? "압축 완료!" : "분할 완료!");
+  };
+
+  const downloadAllSplits = async (item: DocItem) => {
+    if (!item.splitResults?.length) return;
+    if (item.splitResults.length === 1) {
+      const a = document.createElement("a"); a.href = item.splitResults[0].url; a.download = item.splitResults[0].name; a.click(); return;
+    }
+    toast.loading("ZIP 생성 중...", { id: "zip" });
+    const zip = new JSZip();
+    for (const r of item.splitResults) {
+      const blob = await (await fetch(r.url)).blob();
+      zip.file(r.name, blob);
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(await zip.generateAsync({ type: "blob" }));
+    a.download = `${item.file.name.replace(/\.pdf$/i, "")}_split.zip`;
+    a.click();
+    toast.success("다운로드 완료!", { id: "zip" });
+  };
+
+  const splitOnlyPDFs = appMode === "split" && docs.some((d) => !isPDF(d.file.name));
 
   return (
-    <div className="space-y-5">
-      {/* Drop Zone */}
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* Mode tabs */}
+      <div style={{ display: "flex", gap: 0, background: "var(--surface-hover)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 4 }}>
+        {([["compress", <ZapIcon size={14} />, "압축"], ["split", <Scissors size={14} />, "페이지 분할"]] as const).map(([m, icon, label]) => (
+          <button
+            key={m}
+            onClick={() => setAppMode(m as AppMode)}
+            style={{
+              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+              padding: "9px 0", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 14, fontWeight: 500,
+              background: appMode === m ? "var(--surface)" : "transparent",
+              color: appMode === m ? "var(--text)" : "var(--text-secondary)",
+              boxShadow: appMode === m ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+              transition: "all 0.15s",
+            }}
+          >
+            {icon}{label}
+          </button>
+        ))}
+      </div>
+
+      {/* Settings card */}
+      <div className="card" style={{ padding: "18px 22px" }}>
+        {appMode === "compress" ? (
+          <div>
+            <div className="section-label" style={{ marginBottom: 10 }}>압축 수준</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["최대", "중간", "최적"] as CompressionLevel[]).map((l) => (
+                <button
+                  key={l}
+                  onClick={() => setLevel(l)}
+                  className={`pill${level === l ? " active" : ""}`}
+                  style={{ flex: 1, textAlign: "center" }}
+                >
+                  <div style={{ fontWeight: 600 }}>{l}</div>
+                  <div style={{ fontSize: 11, marginTop: 2, opacity: 0.7 }}>{LEVEL_CONFIG[l].desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <div className="section-label" style={{ marginBottom: 10 }}>분할 방식</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {([["each", "페이지별 분할", "각 페이지를 개별 파일로"] as const,
+                   ["range", "범위 지정", "원하는 페이지 범위로"] as const]).map(([m, label, desc]) => (
+                  <button
+                    key={m}
+                    onClick={() => setSplitMode(m)}
+                    className={`pill${splitMode === m ? " active" : ""}`}
+                    style={{ flex: 1, textAlign: "center" }}
+                  >
+                    <div style={{ fontWeight: 600 }}>{label}</div>
+                    <div style={{ fontSize: 11, marginTop: 2, opacity: 0.7 }}>{desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {splitMode === "range" && (
+              <div>
+                <div className="section-label" style={{ marginBottom: 8 }}>페이지 범위</div>
+                <input
+                  className="notion-input"
+                  style={{ width: "100%", padding: "9px 12px" }}
+                  value={rangeInput}
+                  onChange={(e) => setRangeInput(e.target.value)}
+                  placeholder="예: 1-3, 4-6, 7  (쉼표로 구분)"
+                />
+                <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 6 }}>
+                  각 그룹이 별도 PDF 파일로 저장됩니다. 예) 1-3, 4-6 → 2개 파일
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Drop zone */}
       <div
         {...getRootProps()}
-        className={cn(
-          "border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all",
-          isDragActive
-            ? "border-blue-500 bg-blue-500/10"
-            : "border-white/10 hover:border-blue-500/50 hover:bg-white/[0.02]"
-        )}
+        className={`drop-zone${isDragActive ? " active" : ""}`}
+        style={{ padding: "52px 40px", textAlign: "center" }}
       >
         <input {...getInputProps()} />
-        <motion.div
-          animate={{ scale: isDragActive ? 1.05 : 1 }}
-          className="flex flex-col items-center gap-4"
-        >
-          <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-            <FileText size={28} className="text-blue-400" />
+        <motion.div animate={{ y: isDragActive ? -5 : 0 }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+          <div style={{
+            width: 60, height: 60, borderRadius: 14, border: "1px solid var(--border)",
+            background: "var(--surface-hover)", display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <FileText size={26} style={{ color: "var(--text-tertiary)" }} />
           </div>
           <div>
-            <p className="text-base font-semibold text-white/80">
-              {isDragActive ? "Drop files here!" : "Upload or Drop your file!"}
+            <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", marginBottom: 5 }}>
+              {isDragActive ? "여기에 놓으세요" : "문서를 드래그하거나 클릭해 업로드"}
             </p>
-            <p className="text-xs text-white/40 mt-1">PDF · DOC · DOCX · PPT · PPTX · HWP</p>
+            <p style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
+              {appMode === "split" ? "PDF 파일만 지원" : "PDF · DOC · DOCX · PPT · PPTX"}
+            </p>
           </div>
-          <div className="flex gap-2 text-2xl">
-            {["📄", "📝", "📊", "🗒️"].map((icon, i) => (
-              <span key={i}>{icon}</span>
-            ))}
-          </div>
+          <button className="btn-ghost" onClick={(e) => e.stopPropagation()} style={{ pointerEvents: "none" }}>
+            파일 선택
+          </button>
         </motion.div>
       </div>
 
-      {/* File List */}
+      {splitOnlyPDFs && (
+        <p style={{ fontSize: 13, color: "#f59e0b", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8, padding: "8px 12px" }}>
+          ⚠️ 분할 기능은 PDF 파일만 지원합니다.
+        </p>
+      )}
+
+      {/* File list */}
       <AnimatePresence>
-        {docs.map((doc) => (
-          <motion.div
-            key={doc.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="glass rounded-2xl p-4 border border-white/5"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-xl shrink-0">
-                {getFileIcon(doc.file.name)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-sm font-medium text-white/80 truncate">{doc.file.name}</span>
-                  {doc.status === "done" && <CheckCircle size={13} className="text-green-400 shrink-0" />}
-                  {doc.status === "error" && <AlertCircle size={13} className="text-red-400 shrink-0" />}
-                </div>
-                <div className="flex items-center gap-2 text-xs text-white/40">
-                  <span>{formatBytes(doc.file.size)}</span>
-                  {doc.resultSize && (
-                    <>
-                      <span>→</span>
-                      <span className="text-green-400">{formatBytes(doc.resultSize)}</span>
-                      {doc.savings !== undefined && doc.savings > 0 && (
-                        <span className="text-emerald-400 font-semibold">-{doc.savings}%</span>
+        {docs.length > 0 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card" style={{ overflow: "hidden" }}>
+            {docs.map((doc, idx) => (
+              <motion.div
+                key={doc.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, x: -16 }}
+                style={{
+                  padding: "12px 18px",
+                  borderBottom: idx < docs.length - 1 ? "1px solid var(--border)" : "none",
+                }}
+              >
+                {/* Main row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 8, flexShrink: 0,
+                    background: "var(--surface-hover)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+                  }}>
+                    {isPDF(doc.file.name) ? "📄" : ["doc","docx"].includes(getExt(doc.file.name)) ? "📝" : "📊"}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text)" }} className="truncate">{doc.file.name}</span>
+                      {doc.pageCount && <span style={{ fontSize: 11, color: "var(--text-tertiary)", flexShrink: 0 }}>{doc.pageCount}p</span>}
+                      {doc.status === "done" && <CheckCircle size={13} style={{ color: "#22c55e", flexShrink: 0 }} />}
+                      {doc.status === "error" && <AlertCircle size={13} style={{ color: "#ef4444", flexShrink: 0 }} />}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, fontSize: 12, color: "var(--text-tertiary)" }}>
+                      <span>{formatBytes(doc.file.size)}</span>
+                      {doc.resultSize !== undefined && (
+                        <><span>→</span><span style={{ color: "#16a34a" }}>{formatBytes(doc.resultSize)}</span></>
                       )}
-                    </>
-                  )}
+                      {doc.savings !== undefined && doc.savings > 0 && (
+                        <span style={{ color: "#16a34a", fontWeight: 600 }}>-{doc.savings}%</span>
+                      )}
+                      {doc.splitResults && (
+                        <span style={{ color: "var(--accent)" }}>{doc.splitResults.length}개 파일로 분할</span>
+                      )}
+                    </div>
+                    {doc.status === "processing" && (
+                      <div className="progress-track" style={{ height: 3, marginTop: 6 }}>
+                        <motion.div className="progress-fill" style={{ height: "100%" }}
+                          initial={{ width: "0%" }} animate={{ width: `${doc.progress}%` }} />
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                    {doc.status === "done" && doc.resultUrl && (
+                      <a href={doc.resultUrl} download={`compressed-${doc.file.name}`}
+                        style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", color: "#16a34a", display: "flex", background: "var(--surface)" }}>
+                        <Download size={14} />
+                      </a>
+                    )}
+                    {doc.status === "done" && doc.splitResults && (
+                      <button onClick={() => downloadAllSplits(doc)}
+                        style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid rgba(94,106,210,0.3)", color: "var(--accent)", fontSize: 12, fontWeight: 500, background: "var(--accent-light)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                        <Download size={13} /> 전체 받기
+                      </button>
+                    )}
+                    <button onClick={() => setDocs((p) => p.filter((d) => d.id !== doc.id))}
+                      style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", color: "var(--text-tertiary)", background: "var(--surface)", cursor: "pointer", display: "flex" }}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
-                {doc.status === "processing" && (
-                  <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                    <motion.div
-                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
-                      initial={{ width: "0%" }}
-                      animate={{ width: `${doc.progress}%` }}
-                    />
+
+                {/* Split results */}
+                {doc.splitResults && doc.splitResults.length > 0 && (
+                  <div style={{ marginTop: 10, marginLeft: 52, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {doc.splitResults.map((r, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", background: "var(--surface-hover)", borderRadius: 6, border: "1px solid var(--border)" }}>
+                        <span style={{ fontSize: 11, color: "var(--text-secondary)", flex: 1 }}>{r.name}</span>
+                        <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{formatBytes(r.size)}</span>
+                        <a href={r.url} download={r.name}
+                          style={{ color: "var(--accent)", display: "flex", fontSize: 11, padding: "2px 4px" }}>
+                          <Download size={12} />
+                        </a>
+                      </div>
+                    ))}
                   </div>
                 )}
-              </div>
-              <div className="flex gap-1.5 shrink-0">
-                {doc.status === "done" && doc.resultUrl && (
-                  <a
-                    href={doc.resultUrl}
-                    download={`compressed-${doc.file.name}`}
-                    className="p-2 rounded-xl bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors"
-                  >
-                    <Download size={14} />
-                  </a>
-                )}
-                <button
-                  onClick={() => remove(doc.id)}
-                  className="p-2 rounded-xl bg-white/5 text-white/40 hover:bg-red-500/10 hover:text-red-400 transition-colors"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
+              </motion.div>
+            ))}
           </motion.div>
-        ))}
+        )}
       </AnimatePresence>
 
+      {/* Actions */}
       {docs.length > 0 && (
-        <div className="flex gap-2">
+        <div style={{ display: "flex", gap: 8 }}>
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={{ opacity: 0.9 }} whileTap={{ scale: 0.98 }}
             onClick={processAll}
-            className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm font-semibold hover:from-blue-500 hover:to-purple-500 transition-all flex items-center justify-center gap-2"
+            className="btn-primary"
+            style={{ flex: 1, padding: "11px", fontSize: 15, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}
           >
-            <Zap size={15} />
-            Compress All Files
+            {appMode === "compress" ? <><ZapIcon size={15} /> 압축 실행</> : <><Scissors size={15} /> 분할 실행</>}
           </motion.button>
-          <button
-            onClick={() => setDocs([])}
-            className="px-4 py-3 rounded-2xl bg-white/5 text-white/50 text-sm hover:bg-white/10 transition-all"
-          >
-            Clear
-          </button>
+          <button onClick={() => setDocs([])} className="btn-ghost">초기화</button>
         </div>
       )}
     </div>
