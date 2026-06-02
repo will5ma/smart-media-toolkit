@@ -41,18 +41,18 @@ function ToolHeader() {
         }}
       >
         <div style={{
-          width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+          width: 48, height: 48, borderRadius: 12, flexShrink: 0,
           display: "flex", alignItems: "center", justifyContent: "center",
           background: `${color}14`,
-          border: `1px solid ${color}25`,
+          border: `1px solid ${color}22`,
         }}>
-          <Icon size={20} style={{ color }} />
+          <Icon size={22} style={{ color }} />
         </div>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.02em", lineHeight: 1.3 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.025em", lineHeight: 1.3 }}>
             {label}
           </h1>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 3, lineHeight: 1.5 }}>
+          <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4, lineHeight: 1.55 }}>
             {desc}
           </p>
         </div>
@@ -102,7 +102,7 @@ export default function Home() {
       <Sidebar />
 
       <main style={{ flex: 1, overflowY: "auto", minWidth: 0 }}>
-        <div style={{ maxWidth: 760, margin: "0 auto", padding: "48px 40px" }}>
+        <div style={{ maxWidth: 800, margin: "0 auto", padding: "52px 48px" }}>
           <ToolHeader />
           <ToolContent />
         </div>

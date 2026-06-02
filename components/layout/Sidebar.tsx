@@ -21,8 +21,8 @@ export default function Sidebar() {
   return (
     <aside
       style={{
-        width: 232,
-        minWidth: 232,
+        width: 260,
+        minWidth: 260,
         height: "100vh",
         position: "sticky",
         top: 0,
@@ -35,15 +35,15 @@ export default function Sidebar() {
       }}
     >
       {/* Brand */}
-      <div style={{ padding: "20px 16px 16px" }}>
+      <div style={{ padding: "24px 20px 18px" }}>
         <Link
           href="https://www.wearablesearch.co.kr/"
           target="_blank"
           rel="noopener noreferrer"
-          style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}
+          style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none" }}
         >
           <div style={{
-            width: 28, height: 28, borderRadius: 7,
+            width: 34, height: 34, borderRadius: 9,
             overflow: "hidden", border: "1px solid var(--border)", flexShrink: 0,
           }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -54,8 +54,8 @@ export default function Sidebar() {
             />
           </div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", lineHeight: 1.2 }}>WearableSearch</div>
-            <div style={{ fontSize: 10, color: "var(--text-tertiary)", lineHeight: 1.2 }}>Media Toolkit</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", lineHeight: 1.25 }}>WearableSearch</div>
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.25 }}>Media Toolkit</div>
           </div>
         </Link>
       </div>
@@ -64,9 +64,9 @@ export default function Sidebar() {
       <div style={{ height: 1, background: "var(--border)", margin: "0 12px" }} />
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: "12px 8px" }}>
-        <div className="section-label" style={{ padding: "8px 8px 6px" }}>Tools</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <nav style={{ flex: 1, padding: "14px 10px" }}>
+        <div className="section-label" style={{ padding: "6px 10px 10px" }}>Tools</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {TOOLS.map(({ tool, label, icon: Icon, desc }) => {
             const isActive = activeTool === tool;
             return (
@@ -77,9 +77,9 @@ export default function Sidebar() {
                   position: "relative",
                   display: "flex",
                   alignItems: "center",
-                  gap: 10,
-                  padding: "7px 10px",
-                  borderRadius: "var(--radius)",
+                  gap: 12,
+                  padding: "10px 12px",
+                  borderRadius: "var(--radius-lg)",
                   border: "none",
                   cursor: "pointer",
                   background: isActive ? "var(--accent-light)" : "transparent",
@@ -99,19 +99,23 @@ export default function Sidebar() {
                   <motion.div
                     layoutId="sidebar-active"
                     style={{
-                      position: "absolute", left: 0, top: "10%", bottom: "10%",
+                      position: "absolute", left: 0, top: "15%", bottom: "15%",
                       width: 3, borderRadius: 99, background: "var(--accent)",
                     }}
                     transition={{ type: "spring", stiffness: 600, damping: 40 }}
                   />
                 )}
-                <Icon
-                  size={15}
-                  style={{ color: isActive ? "var(--accent)" : "var(--text-secondary)", flexShrink: 0 }}
-                />
+                <div style={{
+                  width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: isActive ? "rgba(94,106,210,0.12)" : "var(--surface-hover)",
+                  border: `1px solid ${isActive ? "rgba(94,106,210,0.2)" : "var(--border)"}`,
+                }}>
+                  <Icon size={16} style={{ color: isActive ? "var(--accent)" : "var(--text-secondary)" }} />
+                </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: isActive ? 600 : 400, lineHeight: 1.3 }}>{label}</div>
-                  <div style={{ fontSize: 11, color: isActive ? "rgba(94,106,210,0.65)" : "var(--text-tertiary)", lineHeight: 1.2 }}>{desc}</div>
+                  <div style={{ fontSize: 14, fontWeight: isActive ? 600 : 500, lineHeight: 1.35, color: isActive ? "var(--accent-text)" : "var(--text)" }}>{label}</div>
+                  <div style={{ fontSize: 12, color: isActive ? "rgba(94,106,210,0.6)" : "var(--text-tertiary)", lineHeight: 1.3, marginTop: 1 }}>{desc}</div>
                 </div>
               </button>
             );

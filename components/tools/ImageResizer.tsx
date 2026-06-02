@@ -129,24 +129,25 @@ export default function ImageResizer() {
       <div
         {...getRootProps()}
         className={`drop-zone${isDragActive ? " active" : ""}`}
-        style={{ padding: "48px 32px", textAlign: "center" }}
+        style={{ padding: "64px 40px", textAlign: "center" }}
       >
         <input {...getInputProps()} />
-        <motion.div animate={{ y: isDragActive ? -4 : 0 }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+        <motion.div animate={{ y: isDragActive ? -6 : 0 }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
           <div style={{
-            width: 52, height: 52, borderRadius: 12, border: "1px solid var(--border)",
+            width: 64, height: 64, borderRadius: 16, border: "1px solid var(--border)",
             background: "var(--surface-hover)", display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <ImageIcon size={22} style={{ color: "var(--text-tertiary)" }} />
+            <ImageIcon size={28} style={{ color: "var(--text-tertiary)" }} />
           </div>
           <div>
-            <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text)", marginBottom: 4 }}>
+            <p style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>
               {isDragActive ? "여기에 놓으세요" : "이미지를 드래그하거나 클릭해 업로드"}
             </p>
-            <p style={{ fontSize: 12, color: "var(--text-tertiary)" }}>JPG, PNG, WebP, GIF · 여러 파일 동시 가능</p>
+            <p style={{ fontSize: 13, color: "var(--text-tertiary)" }}>JPG, PNG, WebP, GIF · 여러 파일 동시 가능</p>
           </div>
           <button
             className="btn-ghost"
+            style={{ fontSize: 14, padding: "9px 22px" }}
             onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
           >
             파일 선택
@@ -157,10 +158,10 @@ export default function ImageResizer() {
         onChange={(e) => { if (e.target.files) onDrop(Array.from(e.target.files)); e.target.value = ""; }} />
 
       {/* Settings */}
-      <div className="card" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="card" style={{ padding: "22px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
         {/* Ratio */}
         <div>
-          <div className="section-label" style={{ marginBottom: 8 }}>캔버스 비율</div>
+          <div className="section-label" style={{ marginBottom: 10 }}>캔버스 비율</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {RATIOS.map((r) => (
               <button key={r} onClick={() => setRatio(r)} className={`pill${ratio === r ? " active" : ""}`}>
@@ -190,7 +191,7 @@ export default function ImageResizer() {
 
         {/* Mode */}
         <div>
-          <div className="section-label" style={{ marginBottom: 8 }}>편집 모드</div>
+          <div className="section-label" style={{ marginBottom: 10 }}>편집 모드</div>
           <div style={{ display: "flex", gap: 6 }}>
             {MODES.map(([m, label]) => (
               <button key={m} onClick={() => setMode(m)} className={`pill${mode === m ? " active" : ""}`}>{label}</button>
@@ -267,7 +268,7 @@ export default function ImageResizer() {
         <div style={{ display: "flex", gap: 8 }}>
           <motion.button whileHover={{ opacity: 0.9 }} whileTap={{ scale: 0.98 }}
             onClick={processAll} className="btn-primary"
-            style={{ flex: 1, padding: "10px", fontSize: 14, borderRadius: 8 }}>
+            style={{ flex: 1, padding: "12px", fontSize: 15, borderRadius: 9 }}>
             리사이즈 실행
           </motion.button>
           {allDone && (
