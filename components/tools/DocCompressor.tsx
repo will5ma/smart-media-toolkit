@@ -81,13 +81,40 @@ async function compressWithCanvas(
   return { url: URL.createObjectURL(blob), size: blob.size };
 }
 
-// ── 메인 압축 함수 ────────────────────────────────────────────────────────
+// ── 서버 API 압축 (mupdf, Vercel 배포 시 사용) ───────────────────────────
+async function compressViaAPI(
+  file: File,
+  level: CompressionLevel,
+  onProgress: (p: number) => void
+): Promise<{ url: string; size: number }> {
+  onProgress(10);
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("level", level);
+
+  const res = await fetch("/api/compress-pdf", { method: "POST", body: formData });
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({ error: "서버 오류" }));
+    throw new Error(error);
+  }
+  onProgress(90);
+  const blob = await res.blob();
+  onProgress(100);
+  return { url: URL.createObjectURL(blob), size: blob.size };
+}
+
+// ── 메인 압축 함수: API 우선 → 실패 시 canvas 폴백 ───────────────────────
 async function compressPDF(
   file: File,
   level: CompressionLevel,
   onProgress: (p: number) => void
 ): Promise<{ url: string; size: number }> {
-  return compressWithCanvas(file, level, onProgress);
+  try {
+    return await compressViaAPI(file, level, onProgress);
+  } catch (e) {
+    console.warn("API 압축 실패, canvas 방식으로 폴백:", e);
+    return await compressWithCanvas(file, level, onProgress);
+  }
 }
 
 // ── 비-PDF 압축 (시뮬레이션) ──────────────────────────────────────────────
@@ -273,7 +300,7 @@ export default function DocCompressor() {
               ))}
             </div>
             <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 12, lineHeight: 1.6 }}>
-              💡 PDF.js로 각 페이지를 렌더링 후 JPEG 재압축합니다. 이미지 위주 PDF에 효과적입니다.
+              ⚡ MuPDF 서버 압축 — 불필요 객체 제거, 스트림/폰트/이미지 재압축
             </p>
           </div>
         ) : (

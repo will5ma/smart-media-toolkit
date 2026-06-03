@@ -30,7 +30,7 @@ export default function Header() {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo.png`}
+              src="/logo.png"
               alt="WearableSearch"
               className="w-full h-full object-contain"
             />

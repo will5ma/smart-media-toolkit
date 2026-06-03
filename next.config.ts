@@ -1,14 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "export",
-  basePath: "/smart-media-toolkit",
-  trailingSlash: true,
+  // Vercel 배포: output: "export" 제거 (서버 기능 활성화)
   images: {
-    unoptimized: true,
-  },
-  env: {
-    NEXT_PUBLIC_BASE_PATH: "/smart-media-toolkit",
+    unoptimized: false, // Vercel Image Optimization 활성화
   },
   turbopack: {},
 };

@@ -48,7 +48,7 @@ export default function Sidebar() {
           }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo.png`}
+              src="/logo.png"
               alt="WearableSearch"
               style={{ width: "100%", height: "100%", objectFit: "contain" }}
             />
