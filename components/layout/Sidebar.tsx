@@ -65,6 +65,38 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav style={{ flex: 1, padding: "14px 10px" }}>
+        {/* Instructor Home 링크 */}
+        <Link
+          href="https://will5ma.github.io/TutorHome/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            padding: "8px 10px",
+            marginBottom: 8,
+            borderRadius: "var(--radius-lg)",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--accent-text)",
+            background: "var(--accent-light)",
+            border: "1px solid rgba(94,106,210,0.18)",
+            textDecoration: "none",
+            transition: "opacity 0.15s",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+          onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          Instructor Home
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "auto", opacity: 0.5 }}>
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </Link>
+
         <div className="section-label" style={{ padding: "6px 10px 10px" }}>Tools</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {TOOLS.map(({ tool, label, icon: Icon, desc }) => {

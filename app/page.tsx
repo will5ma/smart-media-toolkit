@@ -14,7 +14,7 @@ import type { Tool } from "@/store/appStore";
 const TOOL_META: Record<Tool, { label: string; desc: string; icon: React.ElementType; color: string }> = {
   "image-resizer":    { label: "Image Resizer",   desc: "원하는 비율로 자르거나 여백을 추가해 완성도 높은 이미지를 만드세요.", icon: ImageIcon, color: "#5e6ad2" },
   "doc-compressor":   { label: "Doc Compressor",  desc: "PDF, DOC, PPT 파일을 원본 품질을 유지하면서 용량을 줄이세요.",       icon: FileText,  color: "#0ea5e9" },
-  "gif-studio":       { label: "GIF Studio",      desc: "GIF를 편집하거나 동영상을 움직이는 GIF로 바로 변환하세요.",           icon: Film,      color: "#f43f5e" },
+  "gif-studio":       { label: "GIF Studio",      desc: "MP4, WEBM, MOV, AVI, APNG를 GIF로 변환하세요. 최대·중간·최적 품질 선택 가능.",  icon: Film,      color: "#f43f5e" },
   "youtube-thumbnail":{ label: "YT Thumbnail",    desc: "유튜브 영상의 썸네일을 최고 해상도로 즉시 다운로드하세요.",           icon: Youtube,   color: "#ef4444" },
   "image-converter":  { label: "Converter",       desc: "JPG, PNG, WEBP, GIF 등 다양한 이미지 형식으로 손쉽게 변환하세요.",   icon: RefreshCw, color: "#10b981" },
 };

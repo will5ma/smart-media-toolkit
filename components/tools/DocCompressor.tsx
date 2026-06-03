@@ -2,7 +2,7 @@
 import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDropzone } from "react-dropzone";
-import { FileText, Download, Trash2, CheckCircle, AlertCircle, Scissors, ZapIcon } from "lucide-react";
+import { FileText, Download, Trash2, CheckCircle, AlertCircle, Scissors, ZapIcon, BookOpen, Loader2 } from "lucide-react";
 import { PDFDocument } from "pdf-lib";
 import JSZip from "jszip";
 import toast from "react-hot-toast";
@@ -11,7 +11,15 @@ import { formatBytes, generateId } from "@/lib/utils";
 // ── 타입 ──────────────────────────────────────────────────────────────────
 type AppMode = "compress" | "split";
 type CompressionLevel = "최대" | "중간" | "최적";
-type SplitMode = "each" | "range";
+type SplitMode = "each" | "range" | "toc";
+
+interface TocItem {
+  id: string;
+  title: string;
+  pageIndex: number; // 0-based
+  level: number;
+  selected: boolean;
+}
 
 interface DocItem {
   id: string;
@@ -27,16 +35,18 @@ interface DocItem {
 
 // ── 설정 ──────────────────────────────────────────────────────────────────
 const LEVEL_CONFIG: Record<CompressionLevel, { label: string; desc: string; gsOption: string }> = {
-  "최대": { label: "최대 압축", desc: "용량 최우선, 화질 손실", gsOption: "screen" },
-  "중간": { label: "중간 압축", desc: "균형 잡힌 압축",        gsOption: "ebook" },
-  "최적": { label: "최적 품질", desc: "화질 유지, 최소 압축",  gsOption: "printer" },
+  "최대": { label: "최대 압축", desc: "파일 최소화, 화질 손실",     gsOption: "screen" },
+  "중간": { label: "중간 압축", desc: "균형 잡힌 압축",              gsOption: "ebook" },
+  "최적": { label: "최적 품질", desc: "텍스트 선명, 가독성 우선",   gsOption: "printer" },
 };
 
 // ── PDF.js + canvas 압축 ──────────────────────────────────────────────────
+// scale: PDF 렌더링 해상도 (1.0 = 72 DPI, 2.0 = 144 DPI)
+// quality: JPEG 품질 (텍스트 문서는 0.92+ 권장)
 const CANVAS_CONFIG: Record<CompressionLevel, { scale: number; quality: number }> = {
-  "최대": { scale: 0.55, quality: 0.50 },
-  "중간": { scale: 0.75, quality: 0.68 },
-  "최적": { scale: 0.90, quality: 0.84 },
+  "최대": { scale: 0.60, quality: 0.52 },  // 소형 화면용, 파일 최소화
+  "중간": { scale: 0.85, quality: 0.72 },  // 균형
+  "최적": { scale: 1.80, quality: 0.94 },  // 텍스트 가독성 우선 (고해상도 렌더링)
 };
 
 async function compressWithCanvas(
@@ -47,12 +57,12 @@ async function compressWithCanvas(
   const { scale, quality } = CANVAS_CONFIG[level];
   onProgress(5);
 
-  const { default: pdfjsLib } = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  // pdfjs-dist 6.x: named exports only (no default export)
+  const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
+  GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
   const arrayBuffer = await file.arrayBuffer();
-  const pdfJsDoc = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+  const pdfJsDoc = await getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
   const totalPages = pdfJsDoc.numPages;
   onProgress(10);
 
@@ -67,7 +77,7 @@ async function compressWithCanvas(
     await page.render({ canvasContext: ctx as CanvasRenderingContext2D, canvas, viewport }).promise;
 
     const jpegBytes = await new Promise<Uint8Array>((res, rej) =>
-      canvas.toBlob(async (b) => b ? res(new Uint8Array(await b.arrayBuffer())) : rej(), "image/jpeg", quality)
+      canvas.toBlob(async (b) => b ? res(new Uint8Array(await b.arrayBuffer())) : rej(new Error("toBlob 실패")), "image/jpeg", quality)
     );
     const img = await newDoc.embedJpg(jpegBytes);
     const p = newDoc.addPage([canvas.width, canvas.height]);
@@ -81,7 +91,10 @@ async function compressWithCanvas(
   return { url: URL.createObjectURL(blob), size: blob.size };
 }
 
-// ── 서버 API 압축 (mupdf, Vercel 배포 시 사용) ───────────────────────────
+// Vercel 무료 플랜 요청 크기 제한 (4.5MB)
+const SERVER_SIZE_LIMIT = 4 * 1024 * 1024;
+
+// ── 서버 API 압축 (mupdf) ── 4MB 이하 파일만 ─────────────────────────────
 async function compressViaAPI(
   file: File,
   level: CompressionLevel,
@@ -94,8 +107,8 @@ async function compressViaAPI(
 
   const res = await fetch("/api/compress-pdf", { method: "POST", body: formData });
   if (!res.ok) {
-    const { error } = await res.json().catch(() => ({ error: "서버 오류" }));
-    throw new Error(error);
+    const body = await res.json().catch(() => ({ error: "서버 오류" }));
+    throw new Error(body.error ?? "서버 오류");
   }
   onProgress(90);
   const blob = await res.blob();
@@ -103,18 +116,22 @@ async function compressViaAPI(
   return { url: URL.createObjectURL(blob), size: blob.size };
 }
 
-// ── 메인 압축 함수: API 우선 → 실패 시 canvas 폴백 ───────────────────────
+// ── 메인: 크기 기준으로 서버/브라우저 자동 선택 ─────────────────────────
 async function compressPDF(
   file: File,
   level: CompressionLevel,
   onProgress: (p: number) => void
 ): Promise<{ url: string; size: number }> {
-  try {
-    return await compressViaAPI(file, level, onProgress);
-  } catch (e) {
-    console.warn("API 압축 실패, canvas 방식으로 폴백:", e);
-    return await compressWithCanvas(file, level, onProgress);
+  // 4MB 이하 → 서버 mupdf (최고 품질)
+  if (file.size <= SERVER_SIZE_LIMIT) {
+    try {
+      return await compressViaAPI(file, level, onProgress);
+    } catch (e) {
+      console.warn("API 실패, canvas 폴백:", e);
+    }
   }
+  // 4MB 초과 또는 API 실패 → 브라우저 canvas
+  return compressWithCanvas(file, level, onProgress);
 }
 
 // ── 비-PDF 압축 (시뮬레이션) ──────────────────────────────────────────────
@@ -135,6 +152,92 @@ async function getPDFPageCount(file: File): Promise<number> {
   const buf = await file.arrayBuffer();
   const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
   return doc.getPageCount();
+}
+
+// ── 목차(TOC) 감지 ───────────────────────────────────────────────────────
+async function detectTOC(file: File): Promise<TocItem[]> {
+  const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
+  GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+
+  const buf = await file.arrayBuffer();
+  const pdfDoc = await getDocument({ data: new Uint8Array(buf) }).promise;
+  const outline = await pdfDoc.getOutline();
+  if (!outline || outline.length === 0) return [];
+
+  const results: TocItem[] = [];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const traverse = async (items: any[], level: number) => {
+    for (const item of items) {
+      let pageIndex = -1;
+      try {
+        let dest = item.dest;
+        if (typeof dest === "string") dest = await pdfDoc.getDestination(dest);
+        if (Array.isArray(dest) && dest[0]) {
+          pageIndex = await pdfDoc.getPageIndex(dest[0]);
+        }
+      } catch { /* 목적지 없는 항목 무시 */ }
+
+      if (pageIndex >= 0) {
+        results.push({
+          id: generateId(),
+          title: item.title ?? "(제목 없음)",
+          pageIndex,
+          level,
+          selected: level === 0, // 최상위 항목 기본 선택
+        });
+      }
+      if (item.items?.length) await traverse(item.items, level + 1);
+    }
+  };
+
+  await traverse(outline, 0);
+  // 페이지 순서 정렬 후 중복 제거
+  results.sort((a, b) => a.pageIndex - b.pageIndex);
+  return results.filter((item, i) =>
+    i === 0 || item.pageIndex !== results[i - 1].pageIndex
+  );
+}
+
+// ── 목차 기준 분할 ────────────────────────────────────────────────────────
+async function splitByTOC(
+  file: File,
+  tocItems: TocItem[],
+  onProgress: (p: number) => void
+): Promise<{ name: string; url: string; size: number }[]> {
+  const selected = tocItems.filter((t) => t.selected);
+  if (selected.length === 0) throw new Error("분할할 목차 항목을 선택하세요.");
+
+  onProgress(10);
+  const buf = await file.arrayBuffer();
+  const srcDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
+  const total = srcDoc.getPageCount();
+  const baseName = file.name.replace(/\.pdf$/i, "");
+  onProgress(25);
+
+  const results: { name: string; url: string; size: number }[] = [];
+
+  for (let i = 0; i < selected.length; i++) {
+    const item = selected[i];
+    const startPage = item.pageIndex;
+    const endPage = i + 1 < selected.length ? selected[i + 1].pageIndex - 1 : total - 1;
+    if (startPage > endPage) continue;
+
+    const newDoc = await PDFDocument.create();
+    const pages = Array.from({ length: endPage - startPage + 1 }, (_, j) => startPage + j);
+    const copied = await newDoc.copyPages(srcDoc, pages);
+    copied.forEach((p) => newDoc.addPage(p));
+
+    const bytes = await newDoc.save({ useObjectStreams: true });
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" });
+    // 파일명에 사용할 수 없는 특수문자 제거
+    const safeName = item.title.replace(/[\\/:*?"<>|]/g, "_").trim() || `section_${i + 1}`;
+    results.push({ name: `${baseName}_${String(i + 1).padStart(2, "0")}_${safeName}.pdf`, url: URL.createObjectURL(blob), size: blob.size });
+    onProgress(25 + Math.round(((i + 1) / selected.length) * 70));
+  }
+
+  onProgress(100);
+  return results;
 }
 
 // ── PDF 분할 ─────────────────────────────────────────────────────────────
@@ -197,6 +300,9 @@ export default function DocCompressor() {
   const [splitMode, setSplitMode] = useState<SplitMode>("each");
   const [rangeInput, setRangeInput] = useState("1-3, 4-6");
   const [docs, setDocs] = useState<DocItem[]>([]);
+  const [tocItems, setTocItems] = useState<TocItem[]>([]);
+  const [tocLoading, setTocLoading] = useState(false);
+  const [tocFile, setTocFile] = useState<File | null>(null);
   const processingRef = useRef(false);
 
   const onDrop = useCallback(async (accepted: File[]) => {
@@ -228,6 +334,7 @@ export default function DocCompressor() {
   const processAll = async () => {
     if (processingRef.current) return;
     processingRef.current = true;
+    let hasError = false;
     for (const doc of docs) {
       if (doc.status === "done") continue;
       update(doc.id, { status: "processing", progress: 5 });
@@ -240,17 +347,25 @@ export default function DocCompressor() {
           update(doc.id, { status: "done", progress: 100, resultUrl: result.url, resultSize: result.size, savings });
         } else {
           if (!isPDF(doc.file.name)) { toast.error("분할은 PDF만 가능합니다."); update(doc.id, { status: "error" }); continue; }
-          const results = await splitPDF(doc.file, splitMode, rangeInput, (p) => update(doc.id, { progress: p }));
+          let results;
+          if (splitMode === "toc") {
+            if (tocItems.length === 0) { toast.error("먼저 목차를 감지하세요."); update(doc.id, { status: "error" }); continue; }
+            results = await splitByTOC(doc.file, tocItems, (p) => update(doc.id, { progress: p }));
+          } else {
+            results = await splitPDF(doc.file, splitMode, rangeInput, (p) => update(doc.id, { progress: p }));
+          }
           update(doc.id, { status: "done", progress: 100, splitResults: results });
         }
       } catch (e) {
+        hasError = true;
         update(doc.id, { status: "error", progress: 0 });
-        toast.error(`실패: ${doc.file.name}`);
+        const msg = e instanceof Error ? e.message : "알 수 없는 오류";
+        toast.error(`실패: ${doc.file.name}\n${msg}`);
         console.error(e);
       }
     }
     processingRef.current = false;
-    toast.success(appMode === "compress" ? "압축 완료!" : "분할 완료!");
+    if (!hasError) toast.success(appMode === "compress" ? "압축 완료!" : "분할 완료!");
   };
 
   const downloadAllSplits = async (item: DocItem) => {
@@ -300,15 +415,20 @@ export default function DocCompressor() {
               ))}
             </div>
             <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 12, lineHeight: 1.6 }}>
-              ⚡ MuPDF 서버 압축 — 불필요 객체 제거, 스트림/폰트/이미지 재압축
+              ⚡ 4MB 이하: MuPDF 서버 압축 (최고 품질) · 4MB 초과: 브라우저 canvas 재압축
             </p>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* 분할 방식 */}
             <div>
               <div className="section-label" style={{ marginBottom: 10 }}>분할 방식</div>
               <div style={{ display: "flex", gap: 8 }}>
-                {([["each", "페이지별 분할", "각 페이지를 개별 파일로"], ["range", "범위 지정", "원하는 페이지 범위로"]] as const).map(([m, label, desc]) => (
+                {([
+                  ["each",  "페이지별",  "각 페이지 개별 파일"],
+                  ["range", "범위 지정", "페이지 범위 입력"],
+                  ["toc",   "목차 분할", "북마크 기준 분할"],
+                ] as const).map(([m, label, desc]) => (
                   <button key={m} onClick={() => setSplitMode(m)} className={`pill${splitMode === m ? " active" : ""}`} style={{ flex: 1, textAlign: "center" }}>
                     <div style={{ fontWeight: 600 }}>{label}</div>
                     <div style={{ fontSize: 11, marginTop: 2, opacity: 0.7 }}>{desc}</div>
@@ -316,6 +436,8 @@ export default function DocCompressor() {
                 ))}
               </div>
             </div>
+
+            {/* 범위 지정 */}
             {splitMode === "range" && (
               <div>
                 <div className="section-label" style={{ marginBottom: 8 }}>페이지 범위</div>
@@ -323,6 +445,79 @@ export default function DocCompressor() {
                   value={rangeInput} onChange={(e) => setRangeInput(e.target.value)}
                   placeholder="예: 1-3, 4-6, 7  (쉼표로 구분)" />
                 <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 6 }}>각 그룹이 별도 PDF 파일로 저장됩니다.</p>
+              </div>
+            )}
+
+            {/* 목차 분할 */}
+            {splitMode === "toc" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                  PDF에 내장된 북마크(목차)를 감지합니다. 선택한 항목부터 다음 항목 전까지 별도 PDF로 저장됩니다.
+                </p>
+
+                {/* PDF 선택 + 감지 버튼 */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <input type="file" accept=".pdf" id="toc-file-input" style={{ display: "none" }}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setTocFile(file); setTocItems([]); setTocLoading(true);
+                      try {
+                        const items = await detectTOC(file);
+                        if (items.length === 0) toast.error("이 PDF에는 내장 목차(북마크)가 없습니다.");
+                        setTocItems(items);
+                      } catch (err) {
+                        toast.error("목차 감지 실패: " + (err instanceof Error ? err.message : "오류"));
+                      } finally { setTocLoading(false); e.target.value = ""; }
+                    }}
+                  />
+                  <button className="btn-ghost"
+                    style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13 }}
+                    onClick={() => document.getElementById("toc-file-input")?.click()}>
+                    <BookOpen size={14} />
+                    {tocFile ? tocFile.name : "PDF 선택 후 목차 감지"}
+                  </button>
+                  {tocLoading && (
+                    <span style={{ fontSize: 12, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 5 }}>
+                      <Loader2 size={13} className="animate-spin-slow" /> 감지 중...
+                    </span>
+                  )}
+                </div>
+
+                {/* 목차 체크리스트 */}
+                {tocItems.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div className="section-label">목차 항목 {tocItems.length}개 감지됨</div>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button onClick={() => setTocItems((p) => p.map((t) => ({ ...t, selected: true })))}
+                          style={{ fontSize: 11, color: "var(--accent)", cursor: "pointer", background: "none", border: "none" }}>전체 선택</button>
+                        <button onClick={() => setTocItems((p) => p.map((t) => ({ ...t, selected: false })))}
+                          style={{ fontSize: 11, color: "var(--text-tertiary)", cursor: "pointer", background: "none", border: "none" }}>전체 해제</button>
+                      </div>
+                    </div>
+                    <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+                      {tocItems.map((item) => (
+                        <label key={item.id} style={{
+                          display: "flex", alignItems: "center", gap: 10, padding: "7px 10px",
+                          paddingLeft: `${10 + item.level * 16}px`, borderRadius: 6, cursor: "pointer",
+                          background: item.selected ? "var(--accent-light)" : "transparent", transition: "background 0.12s",
+                        }}>
+                          <input type="checkbox" checked={item.selected}
+                            onChange={() => setTocItems((p) => p.map((t) => t.id === item.id ? { ...t, selected: !t.selected } : t))}
+                            style={{ accentColor: "var(--accent)", width: 14, height: 14, flexShrink: 0 }} />
+                          <span style={{ flex: 1, fontSize: 13, lineHeight: 1.4, color: item.selected ? "var(--accent-text)" : "var(--text)", fontWeight: item.level === 0 ? 600 : 400 }}>
+                            {item.title}
+                          </span>
+                          <span style={{ fontSize: 11, color: "var(--text-tertiary)", flexShrink: 0 }}>p.{item.pageIndex + 1}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                      선택된 {tocItems.filter((t) => t.selected).length}개 항목이 각각 별도 PDF로 저장됩니다.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

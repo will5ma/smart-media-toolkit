@@ -1,541 +1,444 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDropzone } from "react-dropzone";
 import {
-  ArrowRight,
-  Download,
-  Trash2,
-  CheckCircle,
-  AlertCircle,
-  RefreshCw,
-  Archive,
-  Shuffle,
+  Download, Trash2, CheckCircle, AlertCircle, RefreshCw,
+  Archive, FolderOpen, ImageIcon, ArrowRight,
 } from "lucide-react";
 import JSZip from "jszip";
-import GIFEncoder from "gif-encoder-2";
 import toast from "react-hot-toast";
-import { cn, formatBytes, generateId } from "@/lib/utils";
+import { formatBytes, generateId } from "@/lib/utils";
 
-type OutputFormat = "jpg" | "png" | "webp" | "gif" | "svg";
+// ── 타입 ──────────────────────────────────────────────────────────────────
+type OutputFormat = "jpg" | "png";
+type AppMode      = "files" | "folder";
 
 interface ConvertItem {
   id: string;
   file: File;
-  preview: string;
-  inputFormat: string;
+  previewUrl: string;
+  inputExt: string;
   status: "idle" | "processing" | "done" | "error";
   progress: number;
   resultUrl?: string;
   resultSize?: number;
-  resultFormat?: OutputFormat;
   errorMsg?: string;
 }
 
-const FORMAT_COLORS: Record<string, string> = {
-  jpg: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
-  jpeg: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
-  png: "text-blue-400 bg-blue-400/10 border-blue-400/20",
-  webp: "text-green-400 bg-green-400/10 border-green-400/20",
-  gif: "text-purple-400 bg-purple-400/10 border-purple-400/20",
-  svg: "text-pink-400 bg-pink-400/10 border-pink-400/20",
-};
+// ── 지원 확장자 ─────────────────────────────────────────────────────────
+const ACCEPTED_EXTS = ["jpg", "jpeg", "png", "webp", "gif", "avif"];
 
-const OUTPUT_FORMATS: { value: OutputFormat; label: string; desc: string }[] = [
-  { value: "jpg", label: "JPG", desc: "작은 파일, 사진에 최적" },
-  { value: "png", label: "PNG", desc: "투명 배경 지원" },
-  { value: "webp", label: "WEBP", desc: "웹 최적화, 고압축" },
-  { value: "gif", label: "GIF", desc: "애니메이션 지원, 웹 호환" },
-  { value: "svg", label: "SVG", desc: "벡터 래퍼 (래스터 임베드)" },
-];
-
-function getExt(file: File): string {
-  return file.name.split(".").pop()?.toLowerCase() || "";
+function getExt(file: File) {
+  return file.name.split(".").pop()?.toLowerCase() ?? "";
+}
+function isImageFile(file: File) {
+  return ACCEPTED_EXTS.includes(getExt(file));
 }
 
-function getMimeType(fmt: OutputFormat): string {
-  if (fmt === "jpg") return "image/jpeg";
-  if (fmt === "png") return "image/png";
-  if (fmt === "webp") return "image/webp";
-  if (fmt === "gif") return "image/gif";
-  return "image/svg+xml";
-}
-
-async function convertToGif(file: File, quality: number): Promise<{ url: string; size: number }> {
-  return new Promise((resolve, reject) => {
-    const ext = getExt(file);
-    const objectUrl = URL.createObjectURL(file);
-    const img = new window.Image();
-    img.crossOrigin = "anonymous";
-
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth || img.width;
-      canvas.height = img.naturalHeight || img.height;
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(objectUrl);
-
-      try {
-        const gifQuality = Math.max(1, Math.round((100 - quality) / 10) + 1);
-        const encoder = new GIFEncoder(canvas.width, canvas.height, "neuquant", false);
-        encoder.setQuality(gifQuality);
-        encoder.start();
-        encoder.addFrame(ctx);
-        encoder.finish();
-        const buffer = encoder.out.getData();
-        const blob = new Blob([buffer.buffer as ArrayBuffer], { type: "image/gif" });
-        resolve({ url: URL.createObjectURL(blob), size: blob.size });
-      } catch (e: any) {
-        reject(new Error("GIF 인코딩 실패: " + e.message));
-      }
-    };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("이미지 로드 실패"));
-    };
-
-    if (ext === "svg") {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const svgText = e.target?.result as string;
-        const blob = new Blob([svgText], { type: "image/svg+xml" });
-        img.src = URL.createObjectURL(blob);
-      };
-      reader.readAsText(file);
-    } else {
-      img.src = objectUrl;
-    }
-  });
-}
-
-async function convertToRaster(
+// ── 변환 함수 ──────────────────────────────────────────────────────────
+async function convertFile(
   file: File,
-  targetFmt: Exclude<OutputFormat, "svg" | "gif">,
+  fmt: OutputFormat,
   quality: number
 ): Promise<{ url: string; size: number }> {
   return new Promise((resolve, reject) => {
-    const ext = getExt(file);
-    const isSvg = ext === "svg";
     const objectUrl = URL.createObjectURL(file);
-
     const img = new window.Image();
     img.crossOrigin = "anonymous";
 
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth || img.width;
-      canvas.height = img.naturalHeight || img.height;
+      canvas.width  = img.naturalWidth  || 800;
+      canvas.height = img.naturalHeight || 600;
       const ctx = canvas.getContext("2d")!;
 
-      if (targetFmt === "jpg") {
+      // JPG는 투명 배경을 흰색으로
+      if (fmt === "jpg") {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
       ctx.drawImage(img, 0, 0);
       URL.revokeObjectURL(objectUrl);
 
+      const mime = fmt === "jpg" ? "image/jpeg" : "image/png";
       canvas.toBlob(
         (blob) => {
           if (!blob) return reject(new Error("변환 실패"));
           resolve({ url: URL.createObjectURL(blob), size: blob.size });
         },
-        getMimeType(targetFmt),
-        quality / 100
+        mime,
+        fmt === "jpg" ? quality / 100 : undefined
       );
     };
 
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("이미지 로드 실패"));
-    };
-
-    if (isSvg) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const svgText = e.target?.result as string;
-        const blob = new Blob([svgText], { type: "image/svg+xml" });
-        img.src = URL.createObjectURL(blob);
-      };
-      reader.readAsText(file);
-    } else {
-      img.src = objectUrl;
-    }
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("이미지 로드 실패")); };
+    img.src = objectUrl;
   });
 }
 
-async function convertToSvg(file: File): Promise<{ url: string; size: number }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      const img = new window.Image();
-      img.onload = () => {
-        const w = img.naturalWidth || 800;
-        const h = img.naturalHeight || 600;
-        const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-  <image href="${dataUrl}" width="${w}" height="${h}"/>
-</svg>`;
-        const blob = new Blob([svgContent], { type: "image/svg+xml" });
-        resolve({ url: URL.createObjectURL(blob), size: blob.size });
-      };
-      img.onerror = () => reject(new Error("이미지 로드 실패"));
-      img.src = dataUrl;
-    };
-    reader.onerror = () => reject(new Error("파일 읽기 실패"));
-    reader.readAsDataURL(file);
-  });
+// ── 포맷 뱃지 색상 ─────────────────────────────────────────────────────
+const EXT_COLOR: Record<string, { bg: string; text: string; border: string }> = {
+  jpg:  { bg: "rgba(234,179,8,0.1)",   text: "#ca8a04",  border: "rgba(234,179,8,0.25)"  },
+  jpeg: { bg: "rgba(234,179,8,0.1)",   text: "#ca8a04",  border: "rgba(234,179,8,0.25)"  },
+  png:  { bg: "rgba(59,130,246,0.1)",  text: "#2563eb",  border: "rgba(59,130,246,0.25)" },
+  webp: { bg: "rgba(34,197,94,0.1)",   text: "#16a34a",  border: "rgba(34,197,94,0.25)"  },
+  gif:  { bg: "rgba(168,85,247,0.1)",  text: "#9333ea",  border: "rgba(168,85,247,0.25)" },
+  avif: { bg: "rgba(239,68,68,0.1)",   text: "#dc2626",  border: "rgba(239,68,68,0.25)"  },
+};
+function ExtBadge({ ext }: { ext: string }) {
+  const c = EXT_COLOR[ext] ?? { bg: "rgba(0,0,0,0.05)", text: "var(--text-secondary)", border: "var(--border)" };
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 5,
+      background: c.bg, color: c.text, border: `1px solid ${c.border}` }}>
+      {ext.toUpperCase()}
+    </span>
+  );
 }
 
+// ── 메인 컴포넌트 ──────────────────────────────────────────────────────
 export default function ImageConverter() {
-  const [items, setItems] = useState<ConvertItem[]>([]);
-  const [targetFormat, setTargetFormat] = useState<OutputFormat>("png");
-  const [quality, setQuality] = useState(90);
+  const [mode, setMode]           = useState<AppMode>("files");
+  const [format, setFormat]       = useState<OutputFormat>("jpg");
+  const [quality, setQuality]     = useState(90);
+  const [items, setItems]         = useState<ConvertItem[]>([]);
+  const [folderName, setFolderName] = useState<string | null>(null);
+  const folderInputRef            = useRef<HTMLInputElement>(null);
+  const processingRef             = useRef(false);
 
+  // ── 파일 모드: 드롭존 ───────────────────────────────────────────────
   const onDrop = useCallback((accepted: File[]) => {
-    const newItems: ConvertItem[] = accepted.map((file) => {
-      const ext = getExt(file);
-      return {
-        id: generateId(),
-        file,
-        preview: (["jpg", "jpeg", "png", "webp", "gif", "svg"].includes(ext))
-          ? URL.createObjectURL(file)
-          : "",
-        inputFormat: ext,
-        status: "idle",
-        progress: 0,
-      };
-    });
-    setItems((prev) => [...prev, ...newItems]);
+    const filtered = accepted.filter(isImageFile);
+    if (!filtered.length) { toast.error("지원 형식: JPG, PNG, WEBP, GIF, AVIF"); return; }
+    setItems((prev) => [
+      ...prev,
+      ...filtered.map((file) => ({
+        id: generateId(), file,
+        previewUrl: URL.createObjectURL(file),
+        inputExt: getExt(file),
+        status: "idle" as const, progress: 0,
+      })),
+    ]);
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
       "image/jpeg": [".jpg", ".jpeg"],
-      "image/png": [".png"],
+      "image/png":  [".png"],
       "image/webp": [".webp"],
-      "image/gif": [".gif"],
-      "image/svg+xml": [".svg"],
+      "image/gif":  [".gif"],
+      "image/avif": [".avif"],
     },
     multiple: true,
+    noClick: mode === "folder",
   });
 
-  const convertAll = async () => {
-    const convertable = items.filter((i) => i.status === "idle" || i.status === "error");
-    if (!convertable.length) return;
-
-    for (const item of convertable) {
-      setItems((prev) =>
-        prev.map((i) =>
-          i.id === item.id ? { ...i, status: "processing", progress: 20 } : i
-        )
-      );
-
-      try {
-        await new Promise((r) => setTimeout(r, 80));
-        setItems((prev) =>
-          prev.map((i) => (i.id === item.id ? { ...i, progress: 60 } : i))
-        );
-
-        let result: { url: string; size: number };
-        if (targetFormat === "svg") {
-          result = await convertToSvg(item.file);
-        } else if (targetFormat === "gif") {
-          result = await convertToGif(item.file, quality);
-        } else {
-          result = await convertToRaster(item.file, targetFormat, quality);
-        }
-
-        setItems((prev) =>
-          prev.map((i) =>
-            i.id === item.id
-              ? {
-                  ...i,
-                  status: "done",
-                  progress: 100,
-                  resultUrl: result.url,
-                  resultSize: result.size,
-                  resultFormat: targetFormat,
-                }
-              : i
-          )
-        );
-      } catch (e: any) {
-        setItems((prev) =>
-          prev.map((i) =>
-            i.id === item.id
-              ? { ...i, status: "error", progress: 0, errorMsg: e.message }
-              : i
-          )
-        );
-        toast.error(`변환 실패: ${item.file.name}`);
-      }
-    }
-    toast.success("변환 완료!");
+  // ── 폴더 모드: 폴더 인풋 ────────────────────────────────────────────
+  const handleFolderInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).filter(isImageFile);
+    if (!files.length) { toast.error("폴더에서 지원하는 이미지가 없습니다."); return; }
+    const name = files[0].webkitRelativePath?.split("/")[0] ?? "선택된 폴더";
+    setFolderName(name);
+    setItems(files.map((file) => ({
+      id: generateId(), file,
+      previewUrl: URL.createObjectURL(file),
+      inputExt: getExt(file),
+      status: "idle" as const, progress: 0,
+    })));
+    e.target.value = "";
   };
 
-  const downloadAll = async () => {
+  // ── 변환 실행 ────────────────────────────────────────────────────────
+  const update = (id: string, patch: Partial<ConvertItem>) =>
+    setItems((p) => p.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+
+  const convertAll = async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    let hasError = false;
+
+    const targets = items.filter((i) => i.status === "idle" || i.status === "error");
+    for (const item of targets) {
+      update(item.id, { status: "processing", progress: 20 });
+      try {
+        await new Promise((r) => setTimeout(r, 30));
+        update(item.id, { progress: 60 });
+        const result = await convertFile(item.file, format, quality);
+        update(item.id, { status: "done", progress: 100, resultUrl: result.url, resultSize: result.size });
+      } catch (e) {
+        hasError = true;
+        const msg = e instanceof Error ? e.message : "오류";
+        update(item.id, { status: "error", progress: 0, errorMsg: msg });
+        toast.error(`실패: ${item.file.name}`);
+      }
+    }
+
+    processingRef.current = false;
+    if (!hasError) {
+      // 폴더 모드는 변환 완료 후 바로 ZIP 다운로드
+      if (mode === "folder") await downloadZip();
+      else toast.success("변환 완료!");
+    }
+  };
+
+  // ── ZIP 다운로드 ─────────────────────────────────────────────────────
+  const downloadZip = async () => {
     const done = items.filter((i) => i.status === "done" && i.resultUrl);
     if (!done.length) return;
-    if (done.length === 1) {
-      triggerDownload(done[0]);
-      return;
-    }
     toast.loading("ZIP 생성 중...", { id: "conv-zip" });
     const zip = new JSZip();
     for (const item of done) {
-      const res = await fetch(item.resultUrl!);
-      const blob = await res.blob();
+      const blob = await (await fetch(item.resultUrl!)).blob();
       const base = item.file.name.replace(/\.[^.]+$/, "");
-      zip.file(`${base}.${item.resultFormat}`, blob);
+      zip.file(`${base}.${format}`, blob);
     }
-    const content = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(content);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = "converted-images.zip";
+    a.href = URL.createObjectURL(await zip.generateAsync({ type: "blob" }));
+    a.download = mode === "folder"
+      ? `${folderName ?? "images"}-${format}.zip`
+      : `converted-${format}.zip`;
     a.click();
-    toast.success("다운로드 완료!", { id: "conv-zip" });
+    toast.success("ZIP 다운로드 완료!", { id: "conv-zip" });
   };
 
-  const triggerDownload = (item: ConvertItem) => {
+  const downloadSingle = (item: ConvertItem) => {
     if (!item.resultUrl) return;
     const a = document.createElement("a");
     a.href = item.resultUrl;
-    a.download = `${item.file.name.replace(/\.[^.]+$/, "")}.${item.resultFormat}`;
+    a.download = `${item.file.name.replace(/\.[^.]+$/, "")}.${format}`;
     a.click();
   };
 
-  const remove = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));
+  const reset = () => { setItems([]); setFolderName(null); };
 
   const allDone = items.length > 0 && items.every((i) => i.status === "done");
 
   return (
-    <div className="space-y-5">
-      {/* Format selector */}
-      <div className="glass rounded-2xl p-4 border border-white/5">
-        <div className="flex items-center gap-2 mb-4">
-          <Shuffle size={14} className="text-emerald-400" />
-          <span className="text-xs font-semibold text-white/80 uppercase tracking-wider">변환 설정</span>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-        <div className="flex flex-wrap gap-4 items-end">
-          {/* Target format */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] text-white/40 uppercase tracking-wider">출력 형식</label>
-            <div className="flex gap-1.5">
-              {OUTPUT_FORMATS.map((fmt) => (
-                <button
-                  key={fmt.value}
-                  onClick={() => setTargetFormat(fmt.value)}
-                  title={fmt.desc}
-                  className={cn(
-                    "px-3 py-1.5 rounded-xl text-xs font-bold border transition-all",
-                    targetFormat === fmt.value
-                      ? "bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-500/20"
-                      : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10"
-                  )}
-                >
-                  {fmt.label}
+      {/* 모드 탭 */}
+      <div style={{ display: "flex", gap: 0, background: "var(--surface-hover)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 4 }}>
+        {([["files", <ImageIcon key="i" size={14} />, "파일 변환"],
+           ["folder", <FolderOpen key="f" size={14} />, "폴더 일괄 변환"]] as const).map(([m, icon, label]) => (
+          <button key={m} onClick={() => { setMode(m); reset(); }}
+            style={{
+              flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+              padding: "9px 0", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 14, fontWeight: 500,
+              background: mode === m ? "var(--surface)" : "transparent",
+              color: mode === m ? "var(--text)" : "var(--text-secondary)",
+              boxShadow: mode === m ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+              transition: "all 0.15s",
+            }}>{icon}{label}</button>
+        ))}
+      </div>
+
+      {/* 변환 설정 */}
+      <div className="card" style={{ padding: "18px 22px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "flex-end" }}>
+          {/* 출력 형식 */}
+          <div>
+            <div className="section-label" style={{ marginBottom: 10 }}>출력 형식</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["jpg", "png"] as OutputFormat[]).map((f) => (
+                <button key={f} onClick={() => setFormat(f)}
+                  className={`pill${format === f ? " active" : ""}`}
+                  style={{ padding: "7px 24px", fontWeight: 700, fontSize: 15 }}>
+                  {f.toUpperCase()}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Quality — only for raster outputs */}
-          {targetFormat !== "svg" && (
-            <div className="flex flex-col gap-1.5 min-w-[160px]">
-              <label className="text-[10px] text-white/40 uppercase tracking-wider">
-                품질: {quality}%
-              </label>
+          {/* JPG 품질 */}
+          {format === "jpg" && (
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <div className="section-label" style={{ marginBottom: 10 }}>품질: {quality}%</div>
               <input
-                type="range"
-                min={10}
-                max={100}
-                step={5}
-                value={quality}
+                type="range" min={10} max={100} step={5} value={quality}
                 onChange={(e) => setQuality(+e.target.value)}
-                className="w-full accent-emerald-500"
+                style={{ width: "100%", accentColor: "var(--accent)" }}
               />
             </div>
           )}
         </div>
-
-        {/* Format descriptions */}
-        <p className="mt-3 text-[10px] text-white/30">
-          {OUTPUT_FORMATS.find((f) => f.value === targetFormat)?.desc}
-          {targetFormat === "svg" && " — 래스터 이미지를 SVG 컨테이너에 임베드합니다 (진짜 벡터화 아님)"}
+        <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 10 }}>
+          {format === "jpg"
+            ? "JPG — 사진에 최적, 투명 배경 흰색 처리, 파일 크기 작음"
+            : "PNG — 투명 배경 유지, 손실 없음, 로고·아이콘에 적합"}
         </p>
       </div>
 
-      {/* Drop Zone */}
-      <div
-        {...getRootProps()}
-        className={cn(
-          "border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all",
-          isDragActive
-            ? "border-emerald-500 bg-emerald-500/10"
-            : "border-white/10 hover:border-emerald-500/50 hover:bg-white/[0.02]"
-        )}
-      >
-        <input {...getInputProps()} />
-        <motion.div animate={{ y: isDragActive ? -4 : 0 }} className="flex flex-col items-center gap-3">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-            <RefreshCw size={24} className={cn("text-emerald-400", isDragActive && "animate-spin")} />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-white/80">
-              {isDragActive ? "이미지를 놓으세요!" : "이미지 업로드 또는 드래그"}
-            </p>
-            <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
-              {["JPG", "PNG", "WEBP", "GIF", "SVG"].map((fmt) => (
-                <span
-                  key={fmt}
-                  className={cn(
-                    "px-2 py-0.5 rounded-md text-[10px] font-bold border",
-                    FORMAT_COLORS[fmt.toLowerCase()] || "text-white/40 bg-white/5 border-white/10"
-                  )}
-                >
-                  {fmt}
-                </span>
-              ))}
+      {/* ── 파일 모드: 드롭존 ── */}
+      {mode === "files" && (
+        <div {...getRootProps()} className={`drop-zone${isDragActive ? " active" : ""}`}
+          style={{ padding: "52px 40px", textAlign: "center" }}>
+          <input {...getInputProps()} />
+          <motion.div animate={{ y: isDragActive ? -5 : 0 }}
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+            <div style={{ width: 60, height: 60, borderRadius: 14, border: "1px solid var(--border)", background: "var(--surface-hover)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <ImageIcon size={26} style={{ color: "var(--text-tertiary)" }} />
             </div>
-          </div>
-        </motion.div>
-      </div>
+            <div>
+              <p style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>
+                {isDragActive ? "여기에 놓으세요" : "이미지를 드래그하거나 클릭해 선택"}
+              </p>
+              <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+                {["JPG", "PNG", "WEBP", "GIF", "AVIF"].map((ext) => (
+                  <ExtBadge key={ext} ext={ext.toLowerCase()} />
+                ))}
+              </div>
+            </div>
+            <button className="btn-ghost" style={{ pointerEvents: "none" }}>파일 선택</button>
+          </motion.div>
+        </div>
+      )}
 
-      {/* File list */}
+      {/* ── 폴더 모드 ── */}
+      {mode === "folder" && (
+        <div className="card" style={{ padding: "40px 32px", textAlign: "center" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+            <div style={{ width: 64, height: 64, borderRadius: 16, border: "1px solid var(--border)", background: "var(--surface-hover)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <FolderOpen size={28} style={{ color: "var(--text-tertiary)" }} />
+            </div>
+            {folderName ? (
+              <div>
+                <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>📁 {folderName}</p>
+                <p style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4 }}>
+                  이미지 {items.length}개 감지됨
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>폴더 선택</p>
+                <p style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
+                  폴더 안의 JPG, PNG, WEBP, GIF, AVIF를 모두 {format.toUpperCase()}로 변환
+                </p>
+              </div>
+            )}
+            <button
+              className="btn-ghost"
+              style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 14 }}
+              onClick={() => folderInputRef.current?.click()}
+            >
+              <FolderOpen size={15} /> {folderName ? "다른 폴더 선택" : "폴더 선택"}
+            </button>
+          </div>
+          {/* webkitdirectory 폴더 인풋 */}
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFolderInput}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            {...({ webkitdirectory: "", directory: "" } as any)}
+          />
+        </div>
+      )}
+
+      {/* 파일 목록 */}
       <AnimatePresence>
         {items.length > 0 && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
-            {items.map((item) => (
-              <motion.div
-                key={item.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="glass rounded-2xl p-3 border border-white/5"
-              >
-                <div className="flex items-center gap-3">
-                  {/* Preview */}
-                  <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-black/30 shrink-0 flex items-center justify-center">
-                    {item.preview ? (
-                      <img
-                        src={item.status === "done" && item.resultUrl ? item.resultUrl : item.preview}
-                        alt={item.file.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-xl">🎨</span>
-                    )}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card" style={{ overflow: "hidden" }}>
+            {/* 요약 바 */}
+            <div style={{ padding: "10px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                {items.length}개 파일 · {items.filter((i) => i.status === "done").length}개 완료
+              </span>
+              {allDone && mode === "files" && (
+                <button onClick={downloadZip} className="btn-ghost"
+                  style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "5px 12px" }}>
+                  <Archive size={13} /> ZIP 다운로드
+                </button>
+              )}
+            </div>
+
+            {/* 파일 행 — 최대 50개 표시 */}
+            {items.slice(0, 50).map((item, idx) => (
+              <motion.div key={item.id}
+                initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                style={{ padding: "10px 18px", borderBottom: idx < Math.min(items.length, 50) - 1 ? "1px solid var(--border)" : "none", display: "flex", alignItems: "center", gap: 12 }}>
+
+                {/* 썸네일 */}
+                <div style={{ width: 40, height: 40, borderRadius: 6, overflow: "hidden", background: "var(--surface-hover)", border: "1px solid var(--border)", flexShrink: 0 }}>
+                  <img src={item.resultUrl ?? item.previewUrl} alt=""
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                </div>
+
+                {/* 정보 */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }} className="truncate">{item.file.name}</span>
+                    <ExtBadge ext={item.inputExt} />
+                    <ArrowRight size={10} style={{ color: "var(--text-tertiary)" }} />
+                    <ExtBadge ext={format} />
+                    {item.status === "done"  && <CheckCircle size={12} style={{ color: "#22c55e", flexShrink: 0 }} />}
+                    {item.status === "error" && <AlertCircle size={12} style={{ color: "#ef4444", flexShrink: 0 }} />}
                   </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                      <span className="text-xs font-medium text-white/80 truncate max-w-[160px]">
-                        {item.file.name}
-                      </span>
-                      {/* Format arrow */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span className={cn("px-1.5 py-0.5 rounded-md text-[10px] font-bold border", FORMAT_COLORS[item.inputFormat] || "text-white/40 bg-white/5 border-white/10")}>
-                          {item.inputFormat.toUpperCase()}
-                        </span>
-                        <ArrowRight size={10} className="text-white/30" />
-                        <span className={cn("px-1.5 py-0.5 rounded-md text-[10px] font-bold border", FORMAT_COLORS[item.resultFormat || targetFormat])}>
-                          {(item.resultFormat || targetFormat).toUpperCase()}
-                        </span>
-                      </div>
-                      {item.status === "done" && <CheckCircle size={12} className="text-emerald-400 shrink-0" />}
-                      {item.status === "error" && <AlertCircle size={12} className="text-red-400 shrink-0" />}
-                    </div>
-
-                    <div className="flex items-center gap-2 text-[10px] text-white/40">
-                      <span>{formatBytes(item.file.size)}</span>
-                      {item.resultSize && (
-                        <>
-                          <span>→</span>
-                          <span className="text-emerald-400">{formatBytes(item.resultSize)}</span>
-                        </>
-                      )}
-                      {item.status === "error" && item.errorMsg && (
-                        <span className="text-red-400">{item.errorMsg}</span>
-                      )}
-                    </div>
-
-                    {item.status === "processing" && (
-                      <div className="mt-1.5 h-1 bg-white/10 rounded-full overflow-hidden">
-                        <motion.div
-                          className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
-                          animate={{ width: `${item.progress}%` }}
-                          transition={{ duration: 0.3 }}
-                        />
-                      </div>
-                    )}
+                  <div style={{ display: "flex", gap: 8, fontSize: 11, color: "var(--text-tertiary)" }}>
+                    <span>{formatBytes(item.file.size)}</span>
+                    {item.resultSize && <><span>→</span><span style={{ color: "#16a34a" }}>{formatBytes(item.resultSize)}</span></>}
+                    {item.status === "error" && item.errorMsg && <span style={{ color: "#ef4444" }}>{item.errorMsg}</span>}
                   </div>
+                  {item.status === "processing" && (
+                    <div className="progress-track" style={{ height: 2, marginTop: 5 }}>
+                      <motion.div className="progress-fill" style={{ height: "100%" }}
+                        initial={{ width: "0%" }} animate={{ width: `${item.progress}%` }} />
+                    </div>
+                  )}
+                </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {item.status === "done" && item.resultUrl && (
-                      <button
-                        onClick={() => triggerDownload(item)}
-                        className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
-                      >
-                        <Download size={13} />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => remove(item.id)}
-                      className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:bg-red-500/10 hover:text-red-400 transition-colors"
-                    >
-                      <Trash2 size={13} />
+                {/* 개별 다운로드 */}
+                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                  {item.status === "done" && item.resultUrl && mode === "files" && (
+                    <button onClick={() => downloadSingle(item)}
+                      style={{ padding: "5px 7px", borderRadius: 6, border: "1px solid var(--border)", color: "var(--accent)", background: "var(--surface)", cursor: "pointer", display: "flex" }}>
+                      <Download size={13} />
                     </button>
-                  </div>
+                  )}
+                  <button onClick={() => setItems((p) => p.filter((i) => i.id !== item.id))}
+                    style={{ padding: "5px 7px", borderRadius: 6, border: "1px solid var(--border)", color: "var(--text-tertiary)", background: "var(--surface)", cursor: "pointer", display: "flex" }}>
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               </motion.div>
             ))}
+            {items.length > 50 && (
+              <div style={{ padding: "8px 18px", fontSize: 12, color: "var(--text-tertiary)", textAlign: "center" }}>
+                +{items.length - 50}개 파일 (목록은 최대 50개 표시 · 변환은 전체 처리)
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Action buttons */}
+      {/* 액션 버튼 */}
       {items.length > 0 && (
-        <div className="flex gap-2">
+        <div style={{ display: "flex", gap: 8 }}>
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={{ opacity: 0.9 }} whileTap={{ scale: 0.98 }}
             onClick={convertAll}
-            className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm font-semibold hover:from-emerald-500 hover:to-teal-500 transition-all flex items-center justify-center gap-2"
+            disabled={processingRef.current}
+            className="btn-primary"
+            style={{ flex: 1, padding: "11px", fontSize: 15, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}
           >
             <RefreshCw size={15} />
-            전체 변환 ({targetFormat.toUpperCase()})
+            {format.toUpperCase()}로 변환 {mode === "folder" ? "→ ZIP 다운로드" : `(${items.length}개)`}
           </motion.button>
-          {allDone && (
+          {allDone && mode === "folder" && (
             <motion.button
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={downloadAll}
-              className="px-4 py-3 rounded-2xl bg-green-600/20 border border-green-500/30 text-green-400 text-sm font-semibold hover:bg-green-600/30 transition-all flex items-center gap-2"
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+              onClick={downloadZip}
+              className="btn-ghost"
+              style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 14 }}
             >
-              <Archive size={15} />
-              전체 다운로드
+              <Archive size={15} /> ZIP 재다운로드
             </motion.button>
           )}
-          <button
-            onClick={() => setItems([])}
-            className="px-4 py-3 rounded-2xl bg-white/5 text-white/50 text-sm hover:bg-white/10 transition-all"
-          >
-            초기화
-          </button>
+          <button onClick={reset} className="btn-ghost">초기화</button>
         </div>
       )}
-
     </div>
   );
 }
