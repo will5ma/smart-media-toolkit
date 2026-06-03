@@ -2,47 +2,17 @@
 import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDropzone } from "react-dropzone";
-import {
-  Film,
-  Upload,
-  Maximize2,
-  Crop,
-  RotateCw,
-  Zap,
-  Rewind,
-  Timer,
-  Scissors,
-  Settings2,
-  Download,
-  ChevronRight,
-} from "lucide-react";
+import { Film, Download, Trash2, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
-import { cn, formatBytes, generateId } from "@/lib/utils";
+import { formatBytes, generateId } from "@/lib/utils";
 
-type GIFTab = "editor" | "generator";
-type EditorTool =
-  | "resize"
-  | "crop"
-  | "downsample"
-  | "convert"
-  | "rotate"
-  | "optimize"
-  | "reverse"
-  | "speed"
-  | "cut"
-  | null;
+// ── 타입 ──────────────────────────────────────────────────────────────────
+type GIFQuality = "최대" | "중간" | "최적";
 
-interface GIFFile {
+interface VideoItem {
   id: string;
   file: File;
-  preview: string;
-  size: number;
-}
-
-interface VideoFile {
-  id: string;
-  file: File;
-  preview?: string;
+  previewUrl: string;
   size: number;
   duration?: number;
   status: "idle" | "processing" | "done" | "error";
@@ -51,485 +21,321 @@ interface VideoFile {
   resultSize?: number;
 }
 
-const EDITOR_TOOLS = [
-  { id: "resize", icon: Maximize2, label: "Resize" },
-  { id: "crop", icon: Crop, label: "Crop" },
-  { id: "downsample", icon: Zap, label: "Downsample" },
-  { id: "convert", icon: Film, label: "Convert" },
-  { id: "rotate", icon: RotateCw, label: "Rotate" },
-  { id: "optimize", icon: Settings2, label: "Optimize" },
-  { id: "reverse", icon: Rewind, label: "Reverse" },
-  { id: "speed", icon: Timer, label: "Speed" },
-  { id: "cut", icon: Scissors, label: "Cut" },
-] as const;
+// ── 품질 설정 ──────────────────────────────────────────────────────────────
+const QUALITY_CONFIG: Record<GIFQuality, {
+  fps: number;
+  width: number;
+  nqQuality: number; // neuquant: 1=최고, 20=최저
+  desc: string;
+}> = {
+  "최대": { fps: 15, width: 480, nqQuality: 1,  desc: "고품질 · 큰 파일" },
+  "중간": { fps: 10, width: 360, nqQuality: 5,  desc: "균형 품질 · 중간 크기" },
+  "최적": { fps: 7,  width: 240, nqQuality: 10, desc: "작은 파일 · 저품질" },
+};
 
-const GIF_PRESETS = [
-  { label: "Small Size", fps: 10, quality: "low", color: "64" },
-  { label: "High Quality", fps: 24, quality: "high", color: "256" },
-  { label: "Social Media", fps: 15, quality: "medium", color: "128" },
-  { label: "Meme GIF", fps: 12, quality: "medium", color: "128" },
-];
+// ── 변환 함수 ──────────────────────────────────────────────────────────────
+async function convertToGIF(
+  file: File,
+  quality: GIFQuality,
+  onProgress: (p: number) => void
+): Promise<{ url: string; size: number }> {
+  const { fps, width, nqQuality } = QUALITY_CONFIG[quality];
 
-function GIFEditor() {
-  const [gif, setGif] = useState<GIFFile | null>(null);
-  const [activeTool, setActiveTool] = useState<EditorTool>(null);
-  const [settings, setSettings] = useState({
-    width: 480,
-    height: 360,
-    fps: 15,
-    quality: 80,
-    speed: 1.0,
-    loops: 0,
+  // 1. 비디오 메타데이터 로드
+  onProgress(5);
+  const videoUrl = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.src = videoUrl;
+  video.muted = true;
+  video.playsInline = true;
+  video.crossOrigin = "anonymous";
+
+  await new Promise<void>((res, rej) => {
+    video.onloadedmetadata = () => res();
+    video.onerror = () => rej(new Error("비디오 로드 실패"));
+    video.load();
   });
 
-  const onDrop = useCallback((accepted: File[]) => {
-    const file = accepted[0];
-    if (!file) return;
-    setGif({
-      id: generateId(),
-      file,
-      preview: URL.createObjectURL(file),
-      size: file.size,
+  const duration = Math.min(video.duration || 10, 30);
+  const aspectRatio = (video.videoHeight || 360) / (video.videoWidth || 640);
+  const height = Math.max(1, Math.round(width * aspectRatio));
+  const totalFrames = Math.max(1, Math.floor(duration * fps));
+
+  // 2. Canvas 준비
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+
+  // 3. gif-encoder-2 동적 import
+  onProgress(8);
+  const GIFEncoder = (await import("gif-encoder-2")).default;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const encoder = new (GIFEncoder as any)(width, height, "neuquant", true, totalFrames);
+  encoder.setDelay(Math.round(1000 / fps));
+  encoder.setQuality(nqQuality);
+  encoder.setRepeat(0);
+  encoder.start();
+
+  // 4. 프레임 캡처
+  for (let i = 0; i < totalFrames; i++) {
+    const time = (i / fps);
+    video.currentTime = time;
+
+    await new Promise<void>((res) => {
+      const onSeeked = () => {
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(video, 0, 0, width, height);
+        encoder.addFrame(ctx);
+        video.removeEventListener("seeked", onSeeked);
+        res();
+      };
+      video.addEventListener("seeked", onSeeked);
+      // seeked 이벤트가 이미 발생한 경우 대비
+      if (Math.abs(video.currentTime - time) < 0.05) {
+        video.removeEventListener("seeked", onSeeked);
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(video, 0, 0, width, height);
+        encoder.addFrame(ctx);
+        res();
+      }
     });
-    setActiveTool(null);
-  }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: { "image/gif": [".gif"] },
-    multiple: false,
-  });
-
-  if (!gif) {
-    return (
-      <div
-        {...getRootProps()}
-        className={cn(
-          "border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all",
-          isDragActive ? "border-pink-500 bg-pink-500/10" : "border-white/10 hover:border-pink-500/50"
-        )}
-      >
-        <input {...getInputProps()} />
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center animate-float">
-            <Film size={28} className="text-pink-400" />
-          </div>
-          <div>
-            <p className="text-base font-semibold text-white/80">Upload GIF to Edit</p>
-            <p className="text-xs text-white/40 mt-1">Drag and drop or click to select</p>
-          </div>
-        </div>
-      </div>
-    );
+    onProgress(8 + Math.round(((i + 1) / totalFrames) * 85));
   }
 
-  return (
-    <div className="grid md:grid-cols-2 gap-4">
-      {/* Preview */}
-      <div className="space-y-3">
-        <div className="glass rounded-2xl p-3 border border-white/5">
-          <img src={gif.preview} alt="GIF Preview" className="w-full rounded-xl max-h-64 object-contain bg-black/30" />
-          <div className="mt-2 flex items-center justify-between text-xs text-white/40 px-1">
-            <span>{gif.file.name}</span>
-            <span>{formatBytes(gif.size)}</span>
-          </div>
-        </div>
-        <button
-          onClick={() => setGif(null)}
-          className="w-full py-2 rounded-xl bg-white/5 text-white/50 text-xs hover:bg-white/10 transition-all flex items-center justify-center gap-2"
-        >
-          <Upload size={13} /> Choose Another File
-        </button>
-      </div>
+  // 5. 인코딩 완료
+  encoder.finish();
+  const data = encoder.out.getData();
+  const blob = new Blob([data.buffer as ArrayBuffer], { type: "image/gif" });
 
-      {/* Tools */}
-      <div className="space-y-3">
-        <div className="glass rounded-2xl p-3 border border-white/5">
-          <p className="text-xs font-semibold text-white/60 mb-3 uppercase tracking-wider">Editor Tools</p>
-          <div className="grid grid-cols-3 gap-1.5">
-            {EDITOR_TOOLS.map((tool) => (
-              <button
-                key={tool.id}
-                onClick={() => setActiveTool(activeTool === tool.id ? null : (tool.id as EditorTool))}
-                className={cn(
-                  "flex flex-col items-center gap-1.5 p-2.5 rounded-xl text-xs font-medium transition-all",
-                  activeTool === tool.id
-                    ? "bg-pink-600/30 text-pink-300 border border-pink-500/30"
-                    : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
-                )}
-              >
-                <tool.icon size={16} />
-                {tool.label}
-              </button>
-            ))}
-          </div>
-        </div>
+  URL.revokeObjectURL(videoUrl);
+  onProgress(100);
 
-        {/* Active Tool Settings */}
-        <AnimatePresence>
-          {activeTool && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="glass rounded-2xl p-3 border border-pink-500/20"
-            >
-              <p className="text-xs font-semibold text-pink-400 mb-3 capitalize">{activeTool} Settings</p>
-              {activeTool === "resize" && (
-                <div className="flex gap-3">
-                  <div className="flex-1">
-                    <label className="text-[10px] text-white/40">Width</label>
-                    <input
-                      type="number"
-                      value={settings.width}
-                      onChange={(e) => setSettings((s) => ({ ...s, width: +e.target.value }))}
-                      className="w-full px-2 py-1 mt-1 bg-white/5 border border-white/10 rounded-lg text-xs text-white"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-[10px] text-white/40">Height</label>
-                    <input
-                      type="number"
-                      value={settings.height}
-                      onChange={(e) => setSettings((s) => ({ ...s, height: +e.target.value }))}
-                      className="w-full px-2 py-1 mt-1 bg-white/5 border border-white/10 rounded-lg text-xs text-white"
-                    />
-                  </div>
-                </div>
-              )}
-              {activeTool === "speed" && (
-                <div>
-                  <label className="text-[10px] text-white/40">Speed: {settings.speed}x</label>
-                  <input
-                    type="range"
-                    min="0.25"
-                    max="4"
-                    step="0.25"
-                    value={settings.speed}
-                    onChange={(e) => setSettings((s) => ({ ...s, speed: +e.target.value }))}
-                    className="w-full mt-2"
-                  />
-                </div>
-              )}
-              {activeTool === "optimize" && (
-                <div>
-                  <label className="text-[10px] text-white/40">Quality: {settings.quality}%</label>
-                  <input
-                    type="range"
-                    min="10"
-                    max="100"
-                    value={settings.quality}
-                    onChange={(e) => setSettings((s) => ({ ...s, quality: +e.target.value }))}
-                    className="w-full mt-2"
-                  />
-                </div>
-              )}
-              {(activeTool === "crop" || activeTool === "cut" || activeTool === "downsample" ||
-                activeTool === "convert" || activeTool === "rotate" || activeTool === "reverse") && (
-                <p className="text-xs text-white/40">
-                  {activeTool === "rotate" && "Rotate 90° clockwise on export"}
-                  {activeTool === "reverse" && "Play frames in reverse order"}
-                  {activeTool === "crop" && "Drag on preview to select crop area"}
-                  {activeTool === "cut" && "Select start and end frames to trim"}
-                  {activeTool === "downsample" && "Reduce frame count to lower file size"}
-                  {activeTool === "convert" && "Export as GIF, WebP, or MP4"}
-                </p>
-              )}
-              <button
-                onClick={() => toast.success(`${activeTool} applied!`)}
-                className="mt-3 w-full py-2 rounded-xl bg-pink-600/20 border border-pink-500/30 text-pink-300 text-xs font-semibold hover:bg-pink-600/30 transition-all"
-              >
-                Apply {activeTool}
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <a
-          href={gif.preview}
-          download={`edited-${gif.file.name}`}
-          className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl bg-gradient-to-r from-pink-600 to-purple-600 text-white text-sm font-semibold hover:from-pink-500 hover:to-purple-500 transition-all"
-        >
-          <Download size={15} /> Export GIF
-        </a>
-      </div>
-    </div>
-  );
+  return { url: URL.createObjectURL(blob), size: blob.size };
 }
 
-function VideoToGIF() {
-  const [video, setVideo] = useState<VideoFile | null>(null);
-  const [fps, setFps] = useState(15);
-  const [quality, setQuality] = useState("medium");
-  const [loops, setLoops] = useState(0);
-  const [preset, setPreset] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+// ── 컴포넌트 ───────────────────────────────────────────────────────────────
+export default function GIFStudio() {
+  const [quality, setQuality] = useState<GIFQuality>("중간");
+  const [items, setItems] = useState<VideoItem[]>([]);
+  const processingRef = useRef(false);
 
   const onDrop = useCallback((accepted: File[]) => {
-    const file = accepted[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    const vid = document.createElement("video");
-    vid.src = url;
-    vid.onloadedmetadata = () => {
-      setVideo({
-        id: generateId(),
-        file,
-        preview: url,
-        size: file.size,
-        duration: vid.duration,
-        status: "idle",
-        progress: 0,
-      });
-    };
+    const newItems: VideoItem[] = accepted.map((file) => {
+      const previewUrl = URL.createObjectURL(file);
+
+      // 비디오 길이 비동기 감지
+      const vid = document.createElement("video");
+      vid.src = previewUrl;
+      vid.onloadedmetadata = () => {
+        setItems((prev) =>
+          prev.map((i) => i.previewUrl === previewUrl ? { ...i, duration: vid.duration } : i)
+        );
+      };
+
+      return { id: generateId(), file, previewUrl, size: file.size, status: "idle", progress: 0 };
+    });
+    setItems((prev) => [...prev, ...newItems]);
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      "video/*": [".mp4", ".webm", ".mov", ".avi"],
+      "video/mp4":  [".mp4"],
+      "video/webm": [".webm"],
+      "video/quicktime": [".mov"],
+      "video/x-msvideo": [".avi"],
       "image/apng": [".apng"],
     },
-    multiple: false,
+    multiple: true,
   });
 
-  const convert = async () => {
-    if (!video) return;
+  const update = (id: string, patch: Partial<VideoItem>) =>
+    setItems((p) => p.map((i) => (i.id === id ? { ...i, ...patch } : i)));
 
-    if ((video.duration || 0) > 30) {
-      toast.error("Videos longer than 30s — please trim before converting", { duration: 4000 });
-      return;
+  const convertAll = async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    let hasError = false;
+
+    for (const item of items) {
+      if (item.status === "done") continue;
+      update(item.id, { status: "processing", progress: 5 });
+
+      try {
+        const result = await convertToGIF(
+          item.file,
+          quality,
+          (p) => update(item.id, { progress: p })
+        );
+        update(item.id, { status: "done", progress: 100, resultUrl: result.url, resultSize: result.size });
+      } catch (e) {
+        hasError = true;
+        update(item.id, { status: "error", progress: 0 });
+        const msg = e instanceof Error ? e.message : "알 수 없는 오류";
+        toast.error(`실패: ${item.file.name} — ${msg}`);
+        console.error(e);
+      }
     }
 
-    setVideo((v) => v ? { ...v, status: "processing", progress: 5 } : v);
-
-    for (let p = 5; p <= 90; p += 15) {
-      await new Promise((r) => setTimeout(r, 300));
-      setVideo((v) => v ? { ...v, progress: p } : v);
-    }
-
-    toast.success("GIF conversion complete! (Demo — FFmpeg.wasm loads on first use)");
-    setVideo((v) =>
-      v ? { ...v, status: "done", progress: 100, resultUrl: v.preview, resultSize: Math.round(v.size * 0.6) } : v
-    );
+    processingRef.current = false;
+    if (!hasError) toast.success("GIF 변환 완료!");
   };
 
   return (
-    <div className="space-y-4">
-      {!video ? (
-        <div
-          {...getRootProps()}
-          className={cn(
-            "border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all",
-            isDragActive ? "border-orange-500 bg-orange-500/10" : "border-white/10 hover:border-orange-500/50"
-          )}
-        >
-          <input {...getInputProps()} />
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
-              <Film size={28} className="text-orange-400" />
-            </div>
-            <div>
-              <p className="text-base font-semibold text-white/80">Video to GIF</p>
-              <p className="text-xs text-white/40 mt-1">MP4 · WEBM · MOV · AVI · APNG</p>
-              <p className="text-xs text-orange-400/70 mt-2">Best results with videos ≤30 seconds</p>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="glass rounded-2xl p-3 border border-white/5">
-            <video
-              ref={videoRef}
-              src={video.preview}
-              className="w-full rounded-xl max-h-52 bg-black/30"
-              controls
-              muted
-              loop
-            />
-            <div className="mt-2 flex items-center justify-between text-xs text-white/40 px-1">
-              <span>{video.file.name}</span>
-              <span>
-                {video.duration ? `${video.duration.toFixed(1)}s` : ""} · {formatBytes(video.size)}
-              </span>
-            </div>
-            {(video.duration || 0) > 30 && (
-              <div className="mt-2 p-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-xs text-orange-400">
-                Videos longer than 30 seconds should be trimmed before GIF conversion.
-              </div>
-            )}
-          </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-          <div className="space-y-3">
-            {/* Presets */}
-            <div className="glass rounded-2xl p-3 border border-white/5">
-              <p className="text-xs font-semibold text-white/60 mb-2 uppercase tracking-wider">Presets</p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {GIF_PRESETS.map((p) => (
-                  <button
-                    key={p.label}
-                    onClick={() => {
-                      setPreset(p.label);
-                      setFps(p.fps);
-                      setQuality(p.quality);
-                    }}
-                    className={cn(
-                      "py-2 px-2 rounded-xl text-xs font-medium transition-all",
-                      preset === p.label
-                        ? "bg-orange-600/30 text-orange-300 border border-orange-500/30"
-                        : "bg-white/5 text-white/60 hover:bg-white/10"
-                    )}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Settings */}
-            <div className="glass rounded-2xl p-3 border border-white/5 space-y-3">
-              <div>
-                <label className="text-[10px] text-white/40 uppercase tracking-wider">FPS: {fps}</label>
-                <input type="range" min={5} max={30} value={fps} onChange={(e) => setFps(+e.target.value)} className="w-full mt-1" />
-              </div>
-              <div className="flex gap-1">
-                {["low", "medium", "high"].map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => setQuality(q)}
-                    className={cn(
-                      "flex-1 py-1 rounded-lg text-xs capitalize transition-all",
-                      quality === q ? "bg-orange-600 text-white" : "bg-white/5 text-white/50 hover:bg-white/10"
-                    )}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-white/50">Loop</span>
-                <button
-                  onClick={() => setLoops(loops === 0 ? -1 : 0)}
-                  className={cn(
-                    "px-3 py-1 rounded-lg text-xs transition-all",
-                    loops === 0 ? "bg-orange-600 text-white" : "bg-white/5 text-white/50"
-                  )}
-                >
-                  {loops === 0 ? "Infinite" : "Play Once"}
-                </button>
-              </div>
-            </div>
-
-            {video.status === "processing" && (
-              <div className="glass rounded-2xl p-3 border border-orange-500/20">
-                <div className="flex items-center gap-2 mb-2">
-                  <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
-                    <Film size={14} className="text-orange-400" />
-                  </motion.div>
-                  <span className="text-xs text-orange-400">Converting to GIF...</span>
-                </div>
-                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                  <motion.div
-                    className="h-full bg-gradient-to-r from-orange-500 to-pink-500 rounded-full"
-                    animate={{ width: `${video.progress}%` }}
-                    transition={{ duration: 0.3 }}
-                  />
-                </div>
-                <p className="text-[10px] text-white/30 mt-1">{video.progress}% — Extracting frames...</p>
-              </div>
-            )}
-
-            {video.status === "done" && video.resultUrl && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass rounded-2xl p-3 border border-green-500/20">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-green-400 font-semibold">GIF Ready!</p>
-                    {video.resultSize && (
-                      <p className="text-[10px] text-white/40">{formatBytes(video.resultSize)}</p>
-                    )}
-                  </div>
-                  <a
-                    href={video.resultUrl}
-                    download={`${video.file.name.replace(/\.[^.]+$/, "")}.gif`}
-                    className="px-3 py-2 rounded-xl bg-green-600/20 border border-green-500/30 text-green-400 text-xs font-semibold hover:bg-green-600/30 transition-all flex items-center gap-1"
-                  >
-                    <Download size={12} /> Download GIF
-                  </a>
-                </div>
-              </motion.div>
-            )}
-
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={convert}
-              disabled={video.status === "processing"}
-              className={cn(
-                "w-full py-3 rounded-2xl text-white text-sm font-semibold transition-all flex items-center justify-center gap-2",
-                video.status === "processing"
-                  ? "bg-white/10 text-white/40 cursor-not-allowed"
-                  : "bg-gradient-to-r from-orange-600 to-pink-600 hover:from-orange-500 hover:to-pink-500"
-              )}
-            >
-              <Film size={15} />
-              {video.status === "processing" ? "Converting..." : "Convert to GIF"}
-              <ChevronRight size={14} />
-            </motion.button>
-
+      {/* 품질 설정 카드 */}
+      <div className="card" style={{ padding: "18px 22px" }}>
+        <div className="section-label" style={{ marginBottom: 10 }}>출력 품질</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {(["최대", "중간", "최적"] as GIFQuality[]).map((q) => (
             <button
-              onClick={() => setVideo(null)}
-              className="w-full py-2 rounded-xl bg-white/5 text-white/40 text-xs hover:bg-white/10 transition-all"
+              key={q}
+              onClick={() => setQuality(q)}
+              className={`pill${quality === q ? " active" : ""}`}
+              style={{ flex: 1, textAlign: "center" }}
             >
-              Choose Different Video
+              <div style={{ fontWeight: 600 }}>{q}</div>
+              <div style={{ fontSize: 11, marginTop: 2, opacity: 0.7 }}>{QUALITY_CONFIG[q].desc}</div>
             </button>
-          </div>
+          ))}
         </div>
-      )}
-    </div>
-  );
-}
-
-export default function GIFStudio() {
-  const [tab, setTab] = useState<GIFTab>("editor");
-
-  return (
-    <div className="space-y-4">
-      {/* Tabs */}
-      <div className="flex gap-1 bg-white/[0.04] rounded-2xl p-1 border border-white/5 w-fit">
-        {(["editor", "generator"] as GIFTab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={cn(
-              "relative px-5 py-2 rounded-xl text-sm font-medium transition-colors",
-              tab === t ? "text-white" : "text-white/50 hover:text-white/80"
-            )}
-          >
-            {tab === t && (
-              <motion.div
-                layoutId="gif-tab"
-                className="absolute inset-0 bg-gradient-to-r from-pink-600/80 to-purple-600/80 rounded-xl"
-                transition={{ type: "spring", stiffness: 400, damping: 30 }}
-              />
-            )}
-            <span className="relative z-10">
-              {t === "editor" ? "GIF 편집" : "GIF 생성"}
-            </span>
-          </button>
-        ))}
+        <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 10, lineHeight: 1.6 }}>
+          FPS {QUALITY_CONFIG[quality].fps} · 너비 {QUALITY_CONFIG[quality].width}px · 최대 30초
+        </p>
       </div>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={tab}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.2 }}
-        >
-          {tab === "editor" ? <GIFEditor /> : <VideoToGIF />}
+      {/* 드롭존 */}
+      <div
+        {...getRootProps()}
+        className={`drop-zone${isDragActive ? " active" : ""}`}
+        style={{ padding: "52px 40px", textAlign: "center" }}
+      >
+        <input {...getInputProps()} />
+        <motion.div animate={{ y: isDragActive ? -5 : 0 }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+          <div style={{
+            width: 60, height: 60, borderRadius: 14, border: "1px solid var(--border)",
+            background: "var(--surface-hover)", display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Film size={26} style={{ color: "var(--text-tertiary)" }} />
+          </div>
+          <div>
+            <p style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>
+              {isDragActive ? "여기에 놓으세요" : "Video to GIF"}
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
+              MP4 · WEBM · MOV · AVI · APNG
+            </p>
+          </div>
+          <button className="btn-ghost" style={{ pointerEvents: "none" }}>파일 선택</button>
         </motion.div>
+      </div>
+
+      {/* 파일 목록 */}
+      <AnimatePresence>
+        {items.length > 0 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card" style={{ overflow: "hidden" }}>
+            {items.map((item, idx) => (
+              <motion.div
+                key={item.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, x: -16 }}
+                style={{
+                  padding: "12px 18px",
+                  borderBottom: idx < items.length - 1 ? "1px solid var(--border)" : "none",
+                  display: "flex", alignItems: "center", gap: 12,
+                }}
+              >
+                {/* 썸네일 */}
+                <div style={{ width: 56, height: 40, borderRadius: 6, overflow: "hidden", background: "var(--surface-hover)", border: "1px solid var(--border)", flexShrink: 0 }}>
+                  <video src={item.previewUrl} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted playsInline />
+                </div>
+
+                {/* 정보 */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }} className="truncate">{item.file.name}</span>
+                    {item.duration && (
+                      <span style={{ fontSize: 11, color: "var(--text-tertiary)", flexShrink: 0 }}>{item.duration.toFixed(1)}s</span>
+                    )}
+                    {item.status === "done"  && <CheckCircle size={13} style={{ color: "#22c55e", flexShrink: 0 }} />}
+                    {item.status === "error" && <AlertCircle size={13} style={{ color: "#ef4444", flexShrink: 0 }} />}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, fontSize: 12, color: "var(--text-tertiary)" }}>
+                    <span>{formatBytes(item.size)}</span>
+                    {item.resultSize && (
+                      <>
+                        <span>→</span>
+                        <span style={{ color: "var(--accent)" }}>{formatBytes(item.resultSize)} GIF</span>
+                      </>
+                    )}
+                  </div>
+                  {item.status === "processing" && (
+                    <div className="progress-track" style={{ height: 3, marginTop: 6 }}>
+                      <motion.div
+                        className="progress-fill"
+                        style={{ height: "100%" }}
+                        initial={{ width: "0%" }}
+                        animate={{ width: `${item.progress}%` }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+                  )}
+                  {item.duration && item.duration > 30 && (
+                    <p style={{ fontSize: 11, color: "#f59e0b", marginTop: 3 }}>⚠️ 30초 초과 — 앞 30초만 변환됩니다</p>
+                  )}
+                </div>
+
+                {/* 액션 버튼 */}
+                <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                  {item.status === "done" && item.resultUrl && (
+                    <a
+                      href={item.resultUrl}
+                      download={`${item.file.name.replace(/\.[^.]+$/, "")}.gif`}
+                      style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", color: "var(--accent)", display: "flex", background: "var(--surface)" }}
+                    >
+                      <Download size={14} />
+                    </a>
+                  )}
+                  {item.status === "error" && (
+                    <button
+                      onClick={() => update(item.id, { status: "idle", progress: 0 })}
+                      style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", color: "var(--text-tertiary)", background: "var(--surface)", cursor: "pointer", display: "flex" }}
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setItems((p) => p.filter((i) => i.id !== item.id))}
+                    style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", color: "var(--text-tertiary)", background: "var(--surface)", cursor: "pointer", display: "flex" }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
+        )}
       </AnimatePresence>
+
+      {/* 하단 액션 버튼 */}
+      {items.length > 0 && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <motion.button
+            whileHover={{ opacity: 0.9 }} whileTap={{ scale: 0.98 }}
+            onClick={convertAll}
+            disabled={processingRef.current}
+            className="btn-primary"
+            style={{ flex: 1, padding: "11px", fontSize: 15, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+          >
+            <Film size={16} /> GIF 변환 실행
+          </motion.button>
+          <button onClick={() => setItems([])} className="btn-ghost">초기화</button>
+        </div>
+      )}
     </div>
   );
 }
